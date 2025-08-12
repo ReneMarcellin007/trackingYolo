@@ -1,0 +1,1375 @@
+DOCUMENTATION JEVOIS - PARTIE 16
+Catégorie principale: OTHER
+Nombre de documents: 3
+================================================================================
+
+
+================================================================================
+URL: http://jevois.org/doc/group__dnn.html
+TITRE: JeVois: Tensor/Neural Processing networks
+================================================================================
+
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+Classes
+Modules
+Functions
+Tensor/Neural Processing networks
+Classes and utilities to provide abstraction to deep neural networks. Provides interfacing to OpenCV backends (CPU, OpenCL), tensor processing units (TPU) such as Coral Edge TPU and neural processing units (NPU) such as Amlogic A311D NPU.
+Collaboration diagram for Tensor/Neural Processing networks:
+Classes
+class
+jevois::dnn::CLIP
+Interface to a
+CLIP
+model used to compute text and image embeddings.
+More...
+class
+jevois::dnn::Network
+Abstract class to represent a neural network.
+More...
+class
+jevois::dnn::NetworkHailo
+Wrapper around an DNN neural network running on the Hailo8 neural accelerator.
+More...
+class
+jevois::dnn::NetworkNPU
+Wrapper around a DNN neural network running on Amlogic A311D NPU accelerator (Verisilicon)
+More...
+class
+jevois::dnn::NetworkONNX
+Wrapper around an ONNX-Runtime neural network.
+More...
+class
+jevois::dnn::NetworkOpenCV
+Wrapper around an OpenCV DNN neural network.
+More...
+class
+jevois::dnn::NetworkPython
+Wrapper around an DNN neural network invoked through python.
+More...
+class
+jevois::dnn::NetworkTPU
+Wrapper around a Coral TPU neural network.
+More...
+class
+jevois::dnn::Pipeline
+Neural processing pipeline.
+More...
+class
+jevois::dnn::PostProcessor
+Post-Processor for neural network pipeline.
+More...
+class
+jevois::dnn::PostProcessorClassify
+Post-Processor for neural network pipeline.
+More...
+class
+jevois::dnn::PostProcessorDetect
+Post-Processor for neural network pipeline.
+More...
+class
+jevois::dnn::PostProcessorDetectOBB
+Post-Processor for neural network pipeline for oriented bounding box (OBB) object detection.
+More...
+class
+jevois::dnn::PostProcessorPose
+Post-Processor for neural network pipeline, for human/animal/other pose detection (skeleton)
+More...
+class
+jevois::dnn::PostProcessorPython
+Post-Processor for neural network pipeline.
+More...
+class
+jevois::dnn::PostProcessorSegment
+Post-Processor for neural network pipeline.
+More...
+class
+jevois::dnn::PostProcessorStub
+Post-Processor for neural network pipeline.
+More...
+class
+jevois::dnn::PostProcessorYuNet
+Post-Processor for YuNet face landmarks detector.
+More...
+class
+jevois::dnn::PreProcessor
+Pre-Processor for neural network pipeline.
+More...
+class
+jevois::dnn::PreProcessorBlob
+Pre-Processor for neural network pipeline.
+More...
+class
+jevois::dnn::PreProcessorPython
+Pre-Processor for neural network pipeline written in python.
+More...
+class
+jevois::dnn::YOLOjevois
+Helper class for runtime-configurable, quantized open-vocabulary object detection.
+More...
+Modules
+DNN-related processors written in python
+Functions
+std::map< int, std::string >
+jevois::dnn::getClassLabels
+(std::string const &arg)
+Get class labels from either a list or a file.
+std::map< int, std::string >
+jevois::dnn::readLabelsFile
+(std::string const &fname)
+Read a label file.
+std::string
+jevois::dnn::getLabel
+(std::map< int, std::string > const &labels, int id, bool namedonly=false)
+Get a label from an id.
+int
+jevois::dnn::stringToRGBA
+(std::string const &label, unsigned char alpha=128)
+Compute a color from a label name.
+void
+jevois::dnn::topK
+(float const *pfProb, float *pfMaxProb, uint32_t *pMaxClass, uint32_t outputCount, uint32_t topNum)
+Get top-k entries and their indices.
+std::string
+jevois::dnn::shapestr
+(cv::Mat const &m)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional cv::Mat with data type TYPE.
+std::string
+jevois::dnn::shapestr
+(std::vector< size_t > dims, int typ)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional size vector and OpenCV data type TYPE.
+std::string
+jevois::dnn::shapestr
+(std::vector< int > dims, int typ)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional size vector and OpenCV data type TYPE.
+std::string
+jevois::dnn::shapestr
+(TfLiteTensor const *t)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional TfLiteTensor with data type TYPE.
+std::string
+jevois::dnn::shapestr
+(vsi_nn_tensor_attr_t const &attr)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional NPU tensor with data type TYPE.
+std::vector< size_t >
+jevois::dnn::strshape
+(std::string const &str)
+Get a vector of size_t from a string containing AxBxC...
+int
+jevois::dnn::tf2cv
+(TfLiteType t)
+Convert from TensorFlow data type to OpenCV.
+vsi_nn_type_e
+jevois::dnn::tf2vsi
+(TfLiteType t)
+Convert from TensorFlow data type to vsi_nn.
+int
+jevois::dnn::vsi2cv
+(vsi_nn_type_e t)
+Convert from NPU data type to OpenCV.
+void
+jevois::dnn::clamp
+(cv::Rect &r, int width, int height)
+Clamp a rectangle to within given image width and height.
+void
+jevois::dnn::clamp
+(cv::Rect2f &r, float width, float height)
+Clamp a rectangle to within given image width and height.
+std::vector< vsi_nn_tensor_attr_t >
+jevois::dnn::parseTensorSpecs
+(std::string const &specs)
+Parse tensor specification.
+cv::Mat
+jevois::dnn::attrmat
+(vsi_nn_tensor_attr_t const &attr, void *dataptr=nullptr)
+Construct a cv::Mat from attr and possibly data pointer.
+std::vector< int >
+jevois::dnn::attrdims
+(vsi_nn_tensor_attr_t const &attr)
+Get a tensor dims as a vector of int, useful to construct a matching cv::Mat.
+cv::Size
+jevois::dnn::attrsize
+(vsi_nn_tensor_attr_t const &attr)
+Get a tensor's (width, height) size in cv::Size format, skipping over other dimensions.
+std::string
+jevois::dnn::attrstr
+(vsi_nn_tensor_attr_t const &attr)
+Get a string describing the specs of a tensor, including quantification specs (not provided by
+shapestr()
+bool
+jevois::dnn::attrmatch
+(vsi_nn_tensor_attr_t const &attr, cv::Mat const &blob)
+Check that a cv::Mat blob matches exactly the spec of an attr.
+vsi_nn_tensor_attr_t
+jevois::dnn::tensorattr
+(TfLiteTensor const *t)
+Get tensor shape and type attributes for a TensorFlow Lite tensor.
+float
+jevois::dnn::fastexp
+(float x)
+Compute fast exponential using approximation formula.
+float
+jevois::dnn::sigmoid
+(float x)
+Compute sigmoid using fastexp.
+void
+jevois::dnn::sigmoid
+(cv::Mat &m)
+Compute sigmoid using fastexp on every pixel of a Mat of type CV_32F, in-place.
+size_t
+jevois::dnn::softmax
+(float const *input, size_t const n, size_t const stride, float const fac, float *output, bool maxonly)
+Apply softmax to a float vector.
+float
+jevois::dnn::softmax_dfl
+(float const *src, float *dst, size_t const n, size_t const stride=1)
+Compute softmax and return DFL distance.
+cv::Mat
+jevois::dnn::quantize
+(cv::Mat const &m, vsi_nn_tensor_attr_t const &attr)
+Quantize from float32 to fixed-point according to the quantization spec in attr.
+cv::Mat
+jevois::dnn::dequantize
+(cv::Mat const &m, vsi_nn_tensor_attr_t const &attr)
+Dequantize an output to float32 according to the quantization spec in attr.
+size_t
+jevois::dnn::effectiveDims
+(cv::Mat const &m)
+Returns the number of non-unit dims in a cv::Mat.
+cv::Mat
+jevois::dnn::concatenate
+(std::vector< cv::Mat > const &tensors, int axis)
+Concatenate several tensors into one.
+std::vector< cv::Mat >
+jevois::dnn::split
+(cv::Mat const &tensor, int axis, std::vector< int > const &sizes)
+Split a tensor into several, along a given axis.
+std::string
+jevois::dnn::shapestr
+(hailo_vstream_info_t const &vi)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional Hailo tensor with data type TYPE.
+vsi_nn_tensor_attr_t
+jevois::dnn::tensorattr
+(hailo_vstream_info_t const &vi)
+Get tensor shape and type attributes for a Hailo tensor.
+vsi_nn_type_e
+jevois::dnn::hailo2vsi
+(hailo_format_type_t t)
+Convert from Hailo data type to vsi_nn.
+vsi_nn_type_e
+jevois::dnn::onnx2vsi
+(ONNXTensorElementDataType t)
+Convert from ONNX-Runtime data type to vsi_nn.
+std::string
+jevois::dnn::shapestr
+(Ort::ConstTensorTypeAndShapeInfo const &ti)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional ONNX tensor with data type TYPE.
+vsi_nn_tensor_attr_t
+jevois::dnn::tensorattr
+(Ort::ConstTensorTypeAndShapeInfo const &ti)
+Get tensor shape and type attributes for an ONNX-runtime tensor.
+Function Documentation
+attrdims()
+std::vector< int > jevois::dnn::attrdims
+vsi_nn_tensor_attr_t const &
+attr
+Get a tensor dims as a vector of int, useful to construct a matching cv::Mat.
+Definition at line
+519
+of file
+Utils.C
+Referenced by
+jevois::dnn::attrmat()
+jevois::dnn::NetworkHailo::load()
+, and
+jevois::dnn::quantize()
+attrmat()
+cv::Mat jevois::dnn::attrmat
+vsi_nn_tensor_attr_t const &
+attr
+void *
+dataptr
+nullptr
+Construct a cv::Mat from attr and possibly data pointer.
+If dataptr is nullptr, new memory will be allocated for the cv::Mat. Caller must ensure data outlives the cv::Mat, and is responsible for eventually de-allocating the data. Usually, with non-null dataptr, this is only to be used as a temporary re-casting, e.g., to recast a received tensor into a Mat before dequantizing it, then forgetting about that Mat.
+Definition at line
+512
+of file
+Utils.C
+References
+jevois::dnn::attrdims()
+, and
+jevois::dnn::vsi2cv()
+Referenced by
+jevois::dnn::NetworkNPU::doprocess()
+jevois::dnn::NetworkONNX::doprocess()
+jevois::dnn::NetworkHailo::load()
+, and
+jevois::dnn::Network::process()
+attrmatch()
+bool jevois::dnn::attrmatch
+vsi_nn_tensor_attr_t const &
+attr
+cv::Mat const &
+blob
+Check that a cv::Mat blob matches exactly the spec of an attr.
+Definition at line
+802
+of file
+Utils.C
+References
+jevois::dnn::vsi2cv()
+Referenced by
+jevois::dnn::dequantize()
+jevois::dnn::NetworkHailo::doprocess()
+, and
+jevois::dnn::NetworkNPU::doprocess()
+attrsize()
+cv::Size jevois::dnn::attrsize
+vsi_nn_tensor_attr_t const &
+attr
+Get a tensor's (width, height) size in cv::Size format, skipping over other dimensions.
+Definition at line
+528
+of file
+Utils.C
+References
+jevois::dnn::attrstr()
+Referenced by
+jevois::dnn::PreProcessor::blobsize()
+, and
+jevois::dnn::PreProcessorBlob::process()
+attrstr()
+std::string jevois::dnn::attrstr
+vsi_nn_tensor_attr_t const &
+attr
+Get a string describing the specs of a tensor, including quantification specs (not provided by
+shapestr()
+Definition at line
+553
+of file
+Utils.C
+Referenced by
+jevois::dnn::attrsize()
+jevois::dnn::NetworkHailo::doprocess()
+jevois::dnn::NetworkNPU::doprocess()
+jevois::dnn::NetworkONNX::doprocess()
+jevois::dnn::NetworkTPU::inputShapes()
+jevois::dnn::NetworkHailo::load()
+jevois::dnn::NetworkNPU::load()
+jevois::dnn::NetworkTPU::outputShapes()
+jevois::dnn::PreProcessorPythonImpl::process()
+, and
+jevois::dnn::PreProcessorBlob::process()
+clamp()
+[1/2]
+void jevois::dnn::clamp
+cv::Rect &
+int
+width
+int
+height
+Clamp a rectangle to within given image width and height.
+Definition at line
+408
+of file
+Utils.C
+Referenced by
+jevois::dnn::PostProcessorDetect::process()
+jevois::dnn::PostProcessorPose::process()
+, and
+jevois::dnn::PostProcessorYuNet::process()
+clamp()
+[2/2]
+void jevois::dnn::clamp
+cv::Rect2f &
+float
+width
+float
+height
+Clamp a rectangle to within given image width and height.
+Definition at line
+418
+of file
+Utils.C
+concatenate()
+cv::Mat jevois::dnn::concatenate
+std::vector< cv::Mat > const &
+tensors
+int
+axis
+Concatenate several tensors into one.
+Axis may be positive starting at 0 for the first dimension (when reading dims from left to right), or negative starting at -1 for the last dimension. For example, for a 10x20x30 tensor, axis 0 has size 10 and is also axis -3, axis 1 has size 20 and is also axis -2, and axis 2 has size 30 and is also axis -1. The input tensors must all have the same number of dimensions, same pixel type, and sizes must match for all dimensions except the one that is being concatenated.
+Definition at line
+937
+of file
+Utils.C
+References
+jevois::cvBytesPerPix()
+jevois::cvtypestr()
+, and
+LFATAL
+Referenced by
+jevois::dnn::Network::process()
+dequantize()
+cv::Mat jevois::dnn::dequantize
+cv::Mat const &
+vsi_nn_tensor_attr_t const &
+attr
+Dequantize an output to float32 according to the quantization spec in attr.
+attr should have the type and quantization details of m, returned tensor is float32
+Definition at line
+888
+of file
+Utils.C
+References
+jevois::dnn::attrmatch()
+LFATAL
+, and
+jevois::dnn::shapestr()
+Referenced by
+jevois::dnn::NetworkHailo::doprocess()
+effectiveDims()
+size_t jevois::dnn::effectiveDims
+cv::Mat const &
+Returns the number of non-unit dims in a cv::Mat.
+For example, returns 2 for a 4D Mat with size 1x1x224x224, since it effectively is a 224x224 2D array
+Definition at line
+927
+of file
+Utils.C
+Referenced by
+jevois::dnn::PostProcessorDetect::process()
+fastexp()
+float jevois::dnn::fastexp
+float
+Compute fast exponential using approximation formula.
+From
+https://github.com/Qengineering/YoloV8-ncnn-Raspberry-Pi-4/blob/main/yoloV8.cpp
+Referenced by
+jevois::dnn::softmax()
+, and
+jevois::dnn::softmax_dfl()
+getClassLabels()
+std::map< int, std::string > jevois::dnn::getClassLabels
+std::string const &
+arg
+Get class labels from either a list or a file.
+If arg corresponds to a file that exists (either absolute path or relative to JEVOIS_SHARE_PATH), then load the classes from that file. Otherwise, set them from arg, which should then be a comma-separated list of values.
+Definition at line
+25
+of file
+Utils.C
+References
+jevois::absolutePath()
+JEVOIS_SHARE_PATH
+jevois::dnn::readLabelsFile()
+, and
+jevois::split()
+Referenced by
+jevois::dnn::PostProcessorClassify::onParamChange()
+jevois::dnn::PostProcessorDetect::onParamChange()
+jevois::dnn::PostProcessorDetectOBB::onParamChange()
+, and
+jevois::dnn::PostProcessorPose::onParamChange()
+getLabel()
+std::string jevois::dnn::getLabel
+std::map< int, std::string > const &
+labels
+int
+id
+bool
+namedonly
+false
+Get a label from an id.
+If no entry is found in the map, return the id as a string (if namedonly is false) or an empty string (if namedonly is true).
+Definition at line
+85
+of file
+Utils.C
+Referenced by
+jevois::dnn::PostProcessorDetect::drawWorldGUI()
+jevois::dnn::YOLOjevois::load()
+jevois::dnn::PostProcessorClassify::process()
+jevois::dnn::PostProcessorDetect::process()
+jevois::dnn::PostProcessorDetectOBB::process()
+, and
+jevois::dnn::PostProcessorPose::process()
+hailo2vsi()
+vsi_nn_type_e jevois::dnn::hailo2vsi
+hailo_format_type_t
+Convert from Hailo data type to vsi_nn.
+Definition at line
+394
+of file
+Utils.C
+Referenced by
+jevois::dnn::tensorattr()
+onnx2vsi()
+vsi_nn_type_e jevois::dnn::onnx2vsi
+ONNXTensorElementDataType
+Convert from ONNX-Runtime data type to vsi_nn.
+Definition at line
+249
+of file
+Utils.C
+Referenced by
+jevois::dnn::tensorattr()
+parseTensorSpecs()
+std::vector< vsi_nn_tensor_attr_t > jevois::dnn::parseTensorSpecs
+std::string const &
+specs
+Parse tensor specification.
+If the specification is empty, an empty vector is returned. Throws std::range_error on any parsing error.
+Definition at line
+428
+of file
+Utils.C
+References
+jevois::split()
+, and
+jevois::dnn::strshape()
+Referenced by
+jevois::dnn::NetworkNPU::inputShapes()
+jevois::dnn::NetworkOpenCV::inputShapes()
+jevois::dnn::NetworkPython::inputShapes()
+jevois::dnn::NetworkTPU::inputShapes()
+jevois::dnn::NetworkNPU::load()
+jevois::dnn::NetworkNPU::outputShapes()
+jevois::dnn::NetworkOpenCV::outputShapes()
+jevois::dnn::NetworkPython::outputShapes()
+, and
+jevois::dnn::NetworkTPU::outputShapes()
+quantize()
+cv::Mat jevois::dnn::quantize
+cv::Mat const &
+vsi_nn_tensor_attr_t const &
+attr
+Quantize from float32 to fixed-point according to the quantization spec in attr.
+m should be float32, typically normalized to [0..1[ or [-1..1[ already. attr is the desired quantized type and method (DFP, AA, etc)
+Definition at line
+816
+of file
+Utils.C
+References
+jevois::dnn::attrdims()
+LFATAL
+jevois::dnn::shapestr()
+, and
+jevois::dnn::vsi2cv()
+Referenced by
+jevois::dnn::PreProcessorBlob::process()
+readLabelsFile()
+std::map< int, std::string > jevois::dnn::readLabelsFile
+std::string const &
+fname
+Read a label file.
+Two formats are allowed: one class name per line, or one class number followed by one class name per file.
+Definition at line
+42
+of file
+Utils.C
+References
+LERROR
+LFATAL
+LINFO
+, and
+jevois::replaceStringAll()
+Referenced by
+jevois::dnn::getClassLabels()
+shapestr()
+[1/7]
+std::string jevois::dnn::shapestr
+cv::Mat const &
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional cv::Mat with data type TYPE.
+Definition at line
+126
+of file
+Utils.C
+References
+jevois::cvtypestr()
+Referenced by
+jevois::dnn::dequantize()
+jevois::dnn::NetworkHailo::doprocess()
+jevois::dnn::NetworkNPU::doprocess()
+jevois::dnn::NetworkONNX::doprocess()
+jevois::dnn::NetworkTPU::doprocess()
+jevois::GUIhelper::drawPoly()
+jevois::dnn::NetworkONNX::load()
+jevois::dnn::NetworkTPU::load()
+jevois::dnn::PreProcessorBlob::process()
+jevois::dnn::Pipeline::process()
+jevois::dnn::Network::process()
+jevois::dnn::PostProcessorDetect::process()
+jevois::dnn::PostProcessorDetectOBB::process()
+jevois::dnn::PostProcessorPose::process()
+jevois::dnn::PostProcessorSegment::process()
+jevois::dnn::quantize()
+jevois::dnn::PreProcessor::sendreport()
+jevois::dnn::shapestr()
+jevois::dnn::Pipeline::showDataPeekWindow()
+jevois::dnn::split()
+, and
+jevois::dnn::PostProcessorDetectYOLO::yolo()
+shapestr()
+[2/7]
+std::string jevois::dnn::shapestr
+hailo_vstream_info_t const &
+vi
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional Hailo tensor with data type TYPE.
+Definition at line
+293
+of file
+Utils.C
+References
+jevois::dnn::shapestr()
+, and
+jevois::dnn::tensorattr()
+shapestr()
+[3/7]
+std::string jevois::dnn::shapestr
+Ort::ConstTensorTypeAndShapeInfo const &
+ti
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional ONNX tensor with data type TYPE.
+Definition at line
+215
+of file
+Utils.C
+shapestr()
+[4/7]
+std::string jevois::dnn::shapestr
+std::vector< int >
+dims
+int
+typ
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional size vector and OpenCV data type TYPE.
+Definition at line
+146
+of file
+Utils.C
+References
+jevois::cvtypestr()
+shapestr()
+[5/7]
+std::string jevois::dnn::shapestr
+std::vector< size_t >
+dims
+int
+typ
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional size vector and OpenCV data type TYPE.
+Definition at line
+136
+of file
+Utils.C
+References
+jevois::cvtypestr()
+shapestr()
+[6/7]
+std::string jevois::dnn::shapestr
+TfLiteTensor const *
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional TfLiteTensor with data type TYPE.
+Definition at line
+156
+of file
+Utils.C
+shapestr()
+[7/7]
+std::string jevois::dnn::shapestr
+vsi_nn_tensor_attr_t const &
+attr
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional NPU tensor with data type TYPE.
+Definition at line
+185
+of file
+Utils.C
+sigmoid()
+[1/2]
+void jevois::dnn::sigmoid
+cv::Mat &
+Compute sigmoid using fastexp on every pixel of a Mat of type CV_32F, in-place.
+Definition at line
+725
+of file
+Utils.C
+References
+LFATAL
+sigmoid()
+[2/2]
+float jevois::dnn::sigmoid
+float
+Compute sigmoid using fastexp.
+Referenced by
+jevois::dnn::PostProcessorDetect::process()
+jevois::dnn::PostProcessorDetectOBB::process()
+, and
+jevois::dnn::PostProcessorPose::process()
+softmax()
+size_t jevois::dnn::softmax
+float const *
+input
+size_t const
+size_t const
+stride
+float const
+fac
+float *
+output
+bool
+maxonly
+Apply softmax to a float vector.
+n is the number of elements to process, stride is the increment in the arrays from one element to the next. So the arrays should have size n * stride. Returns the index in [0..n*stride[ of the highest scoring element. If maxonly is true, only output[returned index] is valid.
+Definition at line
+733
+of file
+Utils.C
+References
+jevois::dnn::fastexp()
+, and
+LFATAL
+Referenced by
+jevois::dnn::PostProcessorClassify::process()
+softmax_dfl()
+float jevois::dnn::softmax_dfl
+float const *
+src
+float *
+dst
+size_t const
+size_t const
+stride
+Compute softmax and return DFL distance.
+src should have size n * stride. Note: even if stride > 1, dst should always have size n
+Definition at line
+769
+of file
+Utils.C
+References
+jevois::dnn::fastexp()
+Referenced by
+jevois::dnn::PostProcessorDetect::process()
+jevois::dnn::PostProcessorDetectOBB::process()
+, and
+jevois::dnn::PostProcessorPose::process()
+split()
+std::vector< cv::Mat > jevois::dnn::split
+cv::Mat const &
+tensor
+int
+axis
+std::vector< int > const &
+sizes
+Split a tensor into several, along a given axis.
+The sum of all given sizes must equal the original size along the selected axis.
+Definition at line
+997
+of file
+Utils.C
+References
+jevois::cvBytesPerPix()
+jevois::join()
+LFATAL
+, and
+jevois::dnn::shapestr()
+Referenced by
+jevois::dnn::Network::process()
+stringToRGBA()
+int jevois::dnn::stringToRGBA
+std::string const &
+label
+unsigned char
+alpha
+128
+Compute a color from a label name.
+Definition at line
+97
+of file
+Utils.C
+Referenced by
+jevois::dnn::PostProcessorDetect::report()
+jevois::dnn::PostProcessorDetectOBB::report()
+, and
+jevois::dnn::PostProcessorPose::report()
+strshape()
+std::vector< size_t > jevois::dnn::strshape
+std::string const &
+str
+Get a vector of size_t from a string containing AxBxC...
+Definition at line
+318
+of file
+Utils.C
+References
+jevois::split()
+Referenced by
+jevois::dnn::Network::onParamChange()
+jevois::dnn::parseTensorSpecs()
+, and
+jevois::dnn::Network::process()
+tensorattr()
+[1/3]
+vsi_nn_tensor_attr_t jevois::dnn::tensorattr
+hailo_vstream_info_t const &
+vi
+Get tensor shape and type attributes for a Hailo tensor.
+Definition at line
+644
+of file
+Utils.C
+References
+jevois::dnn::hailo2vsi()
+tensorattr()
+[2/3]
+vsi_nn_tensor_attr_t jevois::dnn::tensorattr
+Ort::ConstTensorTypeAndShapeInfo const &
+ti
+Get tensor shape and type attributes for an ONNX-runtime tensor.
+Definition at line
+275
+of file
+Utils.C
+References
+jevois::dnn::onnx2vsi()
+tensorattr()
+[3/3]
+vsi_nn_tensor_attr_t jevois::dnn::tensorattr
+TfLiteTensor const *
+Get tensor shape and type attributes for a TensorFlow Lite tensor.
+Definition at line
+605
+of file
+Utils.C
+References
+LFATAL
+, and
+jevois::dnn::tf2vsi()
+Referenced by
+jevois::dnn::NetworkTPU::inputShapes()
+jevois::dnn::NetworkHailo::load()
+jevois::dnn::NetworkONNX::load()
+jevois::dnn::NetworkTPU::outputShapes()
+, and
+jevois::dnn::shapestr()
+tf2cv()
+int jevois::dnn::tf2cv
+TfLiteType
+Convert from TensorFlow data type to OpenCV.
+Definition at line
+327
+of file
+Utils.C
+Referenced by
+jevois::dnn::NetworkTPU::doprocess()
+tf2vsi()
+vsi_nn_type_e jevois::dnn::tf2vsi
+TfLiteType
+Convert from TensorFlow data type to vsi_nn.
+Definition at line
+371
+of file
+Utils.C
+Referenced by
+jevois::dnn::tensorattr()
+topK()
+void jevois::dnn::topK
+float const *
+pfProb
+float *
+pfMaxProb
+uint32_t *
+pMaxClass
+uint32_t
+outputCount
+uint32_t
+topNum
+Get top-k entries and their indices.
+Definition at line
+106
+of file
+Utils.C
+Referenced by
+jevois::dnn::PostProcessorClassify::process()
+vsi2cv()
+int jevois::dnn::vsi2cv
+vsi_nn_type_e
+Convert from NPU data type to OpenCV.
+Definition at line
+349
+of file
+Utils.C
+Referenced by
+jevois::dnn::attrmat()
+jevois::dnn::attrmatch()
+jevois::dnn::NetworkONNX::doprocess()
+jevois::dnn::PreProcessorBlob::process()
+, and
+jevois::dnn::quantize()
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://www.jevois.org/doc/ProgrammerSource.html
+TITRE: JeVois: JeVois Ubuntu packages and source code repositories
+================================================================================
+
+All JeVois software is open-source.
+It is licensed under the GNU General Public License. Please be aware of the viral nature of this license, namely, if you integrate any of the JeVois source code into your own project, then you must release the derived source code as well.
+Please see the
+GNU GPL page
+for more information.
+All JeVois source code is hosted on Github, at
+https://github.com/jevois
+The following repositories are provided:
+jevois:
+The core C++17 JeVois software.
+jevoisbase:
+The base collection of 25+ machine vision modules for JeVois.
+samplemodule:
+A sample standalone module for JeVois, use as a template for new modules.
+samplepythonmodule:
+A sample Python standalone module for JeVois, use as a template for new modules.
+jevois-sdk
+: The framework that provides a Linux kernel and operating system for a
+JeVois-A33
+camera, to be flashed to a microSD card.
+jevoispro-sdk
+: The framework that provides a Linux kernel and operating system for a
+JeVois-Pro
+camera, to be flashed to a microSD card.
+Installing pre-compiled code from jevois.usc.edu
+See
+https://jevois.usc.edu
+for the latest instructions.
+We provide pre-compiled Ubuntu deb packages for the GitHub repositories listed above.
+Setting up the jevois.usc.edu apt source
+As of this writing, and for a desktop running Ubuntu 20.04 amd64:
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys DD24C027
+sudo add-apt-repository "deb https://jevois.usc.edu/apt focal main"
+sudo apt update
+sudo apt upgrade # see note below
+sudo apt autoremove
+sudo apt purge modemmanager
+sudo usermod -aG dialout $USER # need to reboot to take effect
+sudo usermod -aG video $USER # need to reboot to take effect
+Note
+Starting with
+JeVois v1.19.0
+, jevois.usc.edu now also hosts mirror copies of the Google Coral EdgeTPU and Hailo deb packages, so you do not need to pull those from their respective vendors.
+Installing Ubuntu packages for JeVois-A33 development
+Because the operating system that runs on
+JeVois-A33
+is as small as possible and does not have a package management system, compilers, etc the overall strategy for
+JeVois-A33
+is that we cross-compile all code on a desktop computer and place the compiled results into a staging area that will later be flashed to microSD.
+Thus, all packages for
+JeVois-A33
+are for Intel amd64 architecture and are to be installed on desktop, though some packages do contain cross-compiled code for the ARM processor of JeVois-A33. This cross-compiled code will be copied from staging to microSD.
+The following packages are available at
+https://jevois.usc.edu
+for
+JeVois-A33
+jevois-opencv
+: OpenCV 4.x compiled for host computer with settings that match those used by the JeVois platform hardware. We install this package into /usr/share/jevois-opencv-4.x so that it will not interfere with any other OpenCV install you might have on your host system and that might be required by some other software.
+jevois-host
+: JeVois core software compiled for execution on a host computer
+jevois-platform
+: JeVois core software cross-compiled for execution on the JeVois platform hardware
+jevoisbase-host
+: JeVois base modules compiled for execution on a host computer
+jevoisbase-platform
+: JeVois base modules cross-compiled for execution on the JeVois platform hardware
+jevois-sdk
+: Compiled bootloaders, root filesystem, and other config files.
+jevois-sdk-dev
+: Compiled cross-compilers and cross-compiled libraries for the JeVois platform architecture.
+As jevois-sdk-dev brings all the others as dependencies, getting up and running with JeVois development now just means one apt-get install command.
+For more details about file organization across these different packages, see
+Organization of JeVois files on host and platform
+Which packages to install for JeVois-A33?
+If you just want to install and run
+JeVois-A33: JeVois Inventor graphical user interface
+on your desktop:
+sudo apt install jevois-inventor
+If you just want to run JeVois software (jevois-daemon) on your host computer with a standard webcam:
+sudo apt install jevois-host jevoisbase-host
+If you want jevois and jevoisbase cross-compiled for the platform hardware:
+sudo apt install jevois-platform jevoisbase-platform
+If you want to be able to flash a microSD card using jevois-flash-card:
+sudo apt install jevois-sdk
+If you want to be able to cross-compile new modules for JeVois platform hardware:
+sudo apt install jevois-sdk-dev
+If you want to be able to recompile the platform Linux kernel or change the platform O.S. or add new buildroot packages to the platform:
+You need to rebuild jevois-sdk from source. Follow the instructions in the INSTALL file of the jevois repository at
+https://github.com/jevois
+Installing Ubuntu packages for JeVois-Pro development
+Because
+JeVois-Pro
+runs a full Ubuntu operating system, installing packages on the camera is done as you would do for a normal computer.
+The following packages are available at
+https://jevois.usc.edu
+for
+amd64
+(to be installed on a desktop):
+jevoispro-opencv
+: OpenCV 4.x compiled for host computer with settings that match those used by the JeVois-Pro platform hardware. We install this package into /usr/share/jevois-opencv-4.x so that it will not interfere with any other OpenCV install you might have on your host system and that might be required by some other software.
+jevoispro-openvino
+: Intel neural network framework OpenVino compiled for host computer with settings that match those used by the JeVois platform hardware. We install this package into /usr/share/jevoispro-openvino-x so that it will not interfere with any other OpenVino install you might have on your host system and that might be required by some other software.
+jevoispro-host
+: JeVois core software compiled for execution on a host computer.
+jevoisprobase-host
+: JeVois base modules compiled for execution on a host computer.
+jevoispro-platform
+: JeVois core software cross-compiled for arm64 processor as a
+support
+package that will provide the necessary ARM libraries to allow you to later cross-compile your own machine vision modules.
+jevoisprobase-platform
+: JeVois base modules cross-compiled for arm64 processor as a
+support
+package that will provide the necessary ARM libraries to allow you to later cross-compile your own machine vision modules.
+jevoispro-sdk-dev
+: Cross-compiled operating system and libraries to be installed on host to support cross-compilation of JeVois software for the platform. That is, installing jevoispro-sdk-dev on your desktop will allow you to cross-compile jevois and jevoisbase for platform, finding the necessary cross-compiled libraries that may be needed.
+The following packages are available at
+https://jevois.usc.edu
+for
+arm64
+(to be installed on JeVois-Pro):
+jevoispro-opencv
+: OpenCV 4.x compiled for JeVois-Pro. We install this package into /usr/share/jevois-opencv-4.x on the camera.
+jevoispro-openvino
+: Intel neural network framework OpenVino compiled for JeVois-Pro. We install this package into /usr/share/jevoispro-openvino-x on the camera.
+jevoispro-platform
+: JeVois core software cross-compiled for execution on the JeVois-Pro platform hardware, as a
+native
+package for arm64.
+jevoisprobase-platform
+: JeVois base modules compiled for execution on the JeVois-Pro platform hardware, as a
+native
+package for arm64.
+Note
+Installing jevoispro-sdk-dev will pull all the other packages automatically as dependencies.
+Here is a walkthrough of what you should see:
+Which packages to install on a desktop host for JeVois-Pro?
+If you just want to run JeVois software (jevois-daemon) on your host computer with a standard webcam:
+sudo apt install jevoispro-host jevoisprobase-host
+Note
+Yes, this will pull over 500 dependent packages, this is normal, just say Yes to install them all. They include many libraries used by JeVois, the Coral libraries, Boost, OpenCV and OpenVino, etc.
+If you want jevois and jevoisbase cross-compiled for the platform hardware as
+support
+packages to be installed on your host (needed to later cross-compile your own modules from source):
+sudo apt install jevoispro-platform jevoisprobase-platform
+If you want to be able to cross-compile jevois, jevoisbase, or new modules for JeVois platform hardware:
+sudo apt install jevoispro-sdk-dev
+If you want to be able to recompile the platform Linux kernel or change the platform operating system:
+You need to rebuild jevoispro-sdk from source using
+rebuild-os.sh
+as described below.
+Which packages to install on the JeVois-Pro smart camera?
+Note
+The apt source jevois.usc.edu and those for Google Coral are already configured on the microSD, so you do not need to add them to your camera using the
+add-apt-repository
+commands detailed above.
+Before you can run the commands below, you need to connect your camera to a network as described in
+JeVois-Pro: Connecting to a wired or WiFi network
+Note
+jevoispro-opencv, jevoispro-openvino, jevoispro-platform, and jevoisprobase-platform are already pre-installed on the microSD.
+The easiest to run the commands below is to switch JeVois-Pro to Console boot as explained in
+JeVois-Pro Quickstart user guide
+and to login as user
+root
+with password
+jevois
+If you want to update jevoispro-platform and jevoisprobase-platform to the latest official version published at jevois.usc.edu:
+sudo apt update
+sudo apt upgrade
+If you accidentally messed-up your jevois or jevoisbase on microSD (e.g., deleted some critical files) and want to re-install the latest official version published at jevois.usc.edu:
+sudo apt purge jevoispro-platform jevoisprobase-platform
+sudo apt update
+sudo apt install jevoispro-platform jevoisprobase-platform
+And if that does not fix your problem, you may need to re-flash your microSD.
+If you modified and then cross-compiled jevois and jevoisbase from source (see
+Compiling JeVois core software from source
+and
+Compiling JeVoisBase software from source
+) and you want to install those packages on your camera:
+sudo apt purge jevoispro-platform jevoisprobase-platform
+# get the debs you created onto your microSD
+dpkg -i jevoispro-platform-XXX_arm64.deb
+dpkg -i jevoisprobase-platform-XXX_arm64.deb
+JeVois-A33 operating system source download and build from scratch
+This only recommended for advanced programmers who want to modify the Linux kernel or operating system of JeVois.
+Download and installation instructions are in the
+INSTALL file of the jevois repository
+JeVois-Pro operating system source download and build from scratch
+This only recommended for advanced programmers who want to modify the Linux kernel or operating system of JeVois-Pro. If you just need the cross-compiled operating system so that you can compile and link custom code, install the
+jevoispro-sdk-dev
+deb package instead.
+git clone https://github.com/jevois/jevoispro-sdk.git
+cd jevoispro-sdk
+./rebuild-os.sh
+It will take a very long time, possibly over 12 hours depending on your computer and network speeds.
+Note
+If you want to also re-create the
+jevoispro-sdk-dev
+deb package so that you can later install it on another desktop computer, use
+./rebuild-os -deb
+Here is a walkthrough of what you should see when running
+rebuild-os.sh
+
+
+================================================================================
+URL: http://jevois.org/doc/UserDNNoverview.html
+TITRE: JeVois: Running neural networks on JeVois-A33 and JeVois-Pro
+================================================================================
+
+The JeVois
+DNN
+module provides a generic engine to run neural network inference on
+JeVois-A33
+and
+JeVois-Pro
+. Note that currently no neural network training is available on JeVois yet, as training usually requires large servers with big GPUs. Thus here we assume that you have an already-trained model which you want to use on your JeVois camera for runtime inference on live video streams.
+While we here focus on the JeVois
+DNN
+module, several older modules provide DNN functionality:
+TensorFlowEasy
+: TensorFlow-Lite object classification on CPU using TensorFlow API
+TensorFlowSaliency
+: Itti et al. (1998) saliency model + TensorFlow-Lite object classification on CPU using TensorFlow API
+TensorFlowSingle
+: TensorFlow-Lite object classification on CPU using TensorFlow API
+DarknetSingle
+: Darknet object recognition on CPU, using Darknet API
+DarknetSaliency
+: Itti et al. (1998) saliency model + Darknet object recognition on CPU, Darknet API
+DarknetYOLO
+: Darknet YOLO object detection on CPU, Darknet API
+DetectionDNN
+: Object detection using OpenCV on CPU
+PyDetectionDNN
+: Object detection using OpenCV on CPU, Python version
+PyClassificationDNN
+: Object classification using OpenCV on CPU, Python version
+PyEmotion
+: Facial emotion recognition network, in Python
+JeVois-Pro
+only:
+PyFaceMesh
+: Facial landmarks using MediaPipe
+JeVois-Pro
+only:
+PyHandDetector
+: Hand landmarks using MediaPipe
+JeVois-Pro
+only:
+PyPoseDetector
+: Body pose landmarks using MediaPipe
+JeVois-Pro
+only:
+MultiDNN
+: Run multiple neural networks in parallel, display in quadrants
+JeVois-Pro
+only:
+MultiDNN2
+: Run multiple neural networks in parallel, overlapped displays
+JeVois-Pro
+only:
+PyCoralClassify
+: Run classification models on optional Coral TPU, using Coral Python API
+JeVois-Pro
+only:
+PyCoralDetect
+: Run detection models on optional Coral TPU, using Coral Python API
+JeVois-Pro
+only:
+PyCoralSegment
+: Run segmentation models on optional Coral TPU, using Coral Python API
+Note
+On
+JeVois-Pro
+, some of these modules are under the
+Legacy
+list of modules in the graphical interface.
+JeVois-Pro DNN Benchmarks with various hardware accelerators
+See
+JeVois-Pro Deep Neural Network Benchmarks
+JeVois DNN framework overview
+The
+DNN
+module implements a
+Pipeline
+component, which serves as overall inference orchestrator, as well as a factory for three sub-components:
+PreProcessor
+: receives an image from the camere sensor and prepares it for network inference (e.g., resize, swap RGB to BGR, quantize, etc).
+Available variants:
+PreProcessorBlob
+(C++): should be appropriate for most networks that expect one image as input
+write your own in Python following the interface described in
+PreProcessor
+PreProcessorPython
+, and the example in PyPreBlob.py
+Network
+: receives a pre-processed image and runs neural network inference, producing some outputs.
+Available variants:
+NetworkOpenCV
+(C++) for OpenCV, OpenVino/Myriad-X, and TIM-VX/NPU
+NetworkNPU
+(C++)
+NetworkHailo
+(C++)
+NetworkTPU
+(C++)
+NetworkONNX
+(C++) for ONNX Runtime (also available in Python)
+write your own in python following the interface in
+Network
+NetworkPython
+and the example in PyNetOpenCV.py
+PostProcessor
+: receives the raw network outputs and presents them in a human-friendly way. For example, draw boxes on the live camera video after running an object detection network.
+Available variants:
+PostProcessorClassify
+PostProcessorDetect
+(bounding box detection, also supports semantic segmentation of detected objects)
+PostProcessorDetectOBB
+(oriented bounding box detection, using rotated rectangles)
+PostProcessorPose
+(human pose skeleton detection)
+PostProcessorSegment
+(whole-image semantic segmentation)
+PostProcessorYuNet
+(face detection boxes + markers on eyes, nose, and mouth)
+PostProcessorStub
+(useful to test a model for speed before you write your own preprocessor)
+write your own using the interface in
+PostProcessor
+PostProcessorPython
+and the example in PyPostClassify.py
+The parameters of a
+Pipeline
+are specified in a YAML file that describes which pre-processor to use, which network type, which post-processor, and various parameters for these, as well as where the trained weights are stored on microSD. These YAML files are stored in JEVOIS[PRO]:/share/dnn/ and available on
+JeVois-Pro
+through the Config tab of the user interface.
+A given network is selected in the
+DNN
+module via the
+pipe
+parameter of the
+Pipeline
+component. Available pipes are described in that parameter as:
+<ACCEL>:<TYPE>:<NAME>
+where ACCEL is one of (OpenCV, NPU, SPU, TPU, VPU, NPUX, VPUX, Python), and TYPE is one of (Stub, Classify, Detect, Segment, YuNet, Python, Custom).
+The following keys are used in the JeVois-Pro GUI (
+pipe
+parameter of
+Pipeline
+component):
+OpenCV:
+network loaded by OpenCV DNN framework and running on CPU.
+ORT:
+network loaded by ONNX Runtime framework and running on CPU.
+NPU:
+network running native on the JeVois-Pro integrated 5-TOPS NPU (neural processing unit).
+TPU:
+network running on the optional 4-TOPS Google Coral TPU accelerator (tensor processing unit).
+SPU:
+network running on the optional 26-TOPS Hailo8 SPU accelerator (stream processing unit).
+VPU:
+network running on the optional 1-TOPS MyriadX VPU accelerator (vector processing unit).
+NPUX:
+network loaded by OpenCV and running on NPU via the TIM-VX OpenCV extension. To run efficiently, network should have been quantized to int8, otherwise some slow CPU-based emulation will occur.
+VPUX:
+network optimized for VPU but running on CPU if VPU is not available. Note that VPUX entries are automatically created by scanning all VPU entries and changing their target from Myriad to CPU, if a VPU accelerator is not detected. If a VPU is detected, then VPU models are listed and VPUX ones are not. VPUX emulation runs on the JeVois-Pro CPU using the Arm Compute Library to provide efficient implementation of various network layers and operations.
+For example:
+%YAML 1.0
+---
+# SqueezeNet v1.1 from https://github.com/DeepScale/SqueezeNet
+SqueezeNet:
+preproc: Blob
+nettype: OpenCV
+postproc: Classify
+model:
+"opencv-dnn/classification/squeezenet_v1.1.caffemodel"
+config:
+"opencv-dnn/classification/squeezenet_v1.1.prototxt"
+intensors:
+"NCHW:32F:1x3x227x227"
+mean:
+"0 0 0"
+scale: 1.0
+rgb: false
+classes:
+"classification/imagenet_labels.txt"
+classoffset: 1
+will be available in the
+DNN
+module via the
+pipe
+parameter of
+Pipeline
+as
+OpenCV:Classify:SqueezeNet
+For an up-to-date list of supported keys in the YAML file, see all the parameters defined (using
+JEVOIS_DECLARE_PARAMETER(...)
+) in:
+PreProcessor.H
+Network.H
+PostProcessor.H
+Pipeline.H
+From the links above, click on
+Go to the source code of this file
+to see the parameter definitions.
+Procedure to add a new network
+Everything you need at runtime (OpenCV full, with all available backends, targets, etc, OpenVino, Coral EdgeTPU libraries, Hailo libraries, NPU libraries, etc) is pre-installed on JeVois, so you do not need to install any additional software on the camera to run your custom networks using these frameworks.
+Obtain a model: train your own, or download a pretrained model.
+Obtain some parameters about the model (e.g., pre-processing mean, stdev, scale, expected input image size, RGB or BGR, packed (NWHC) or planar (NCHW) pixels, names of the input and output layers, etc).
+For running on
+JeVois-Pro
+, convert/quantize the model on your desktop Linux computer, so that it is optimized to run on one of the available neural accelerators, like integrated NPU, Hailo8, Coral TPU, etc.
+This will require that you install a vendor-provided SDK for each target accelerator (e.g., Amlogic NPU SDK, OpenVino SDK, Hailo SDK, Coral EdgeTPU compiler), on a fast Linux desktop with plenty of RAM, disk space, and possibly a big nVidia GPU.
+For quantization, you will also need a
+representative sample dataset
+. This usually is about 100 images from the validation set used for your model. The goal is to run this dataset through the original network (forward inference only) and record the range of values encountered on every layer. These ranges of values will then be used to quantize the layers with best accuracy.
+Using the vendor SDK for the acelerator of your choice, convert and quantize the model on your fast Linux desktop.
+Copy model to JeVois microSD card under JEVOIS[PRO]:/share/dnn/custom/
+Create a JeVois model zoo entry for your model, where you specify the model parameters and the location where you copied your model files. Typically this is a YAML file under JEVOIS[PRO]:/share/dnn/custom/
+On the camera, launch the JeVois
+DNN
+module. It will scan the custom directory for any valid YAML file, and make your model available through the
+pipe
+parameter of the DNN module's
+Pipeline
+component. Select that pipe to run your model.
+You can adjust many parameters while the model is running (e.g., confidence threshold, pre-processing mean and scale, swap RGB/BGR), while others are frozen at runtime (e.g., input tensor dimensions, post-processor type). Once you determine good values for the online-tunable parameters, you can copy those values to your YAML file. Frozen parameters can only changed in the YAML file.
+Details for the available frameworks
+JeVois-A33
+and
+JeVois-Pro
+Converting and Quantizing Deep Neural Networks for JeVois-Pro
+JeVois-A33
+and
+JeVois-Pro
+Running neural networks on JeVois-A33 or JeVois-Pro using OpenCV
+JeVois-Pro
+only:
+Converting and running neural networks for JeVois-Pro NPU
+JeVois-Pro
+only:
+Converting and running neural networks for Hailo-8 SPU
+JeVois-Pro
+only:
+Converting and running neural networks for Coral TPU
+JeVois-Pro
+only:
+Converting and running neural networks for Myriad-X VPU
+Tips for running custom neural networks
+

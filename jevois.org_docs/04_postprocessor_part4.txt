@@ -1,0 +1,1902 @@
+DOCUMENTATION JEVOIS - PARTIE 4
+Catégorie principale: POSTPROCESSOR
+Nombre de documents: 5
+================================================================================
+
+
+================================================================================
+URL: http://jevois.org/doc/PostProcessorDetectYOLO_8C_source.html
+TITRE: JeVois: src/jevois/DNN/PostProcessorDetectYOLO.C Source File
+================================================================================
+
+JeVois: src/jevois/DNN/PostProcessorDetectYOLO.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+PostProcessorDetectYOLO.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#include <
+jevois/DNN/PostProcessorDetectYOLO.H
+19
+#include <
+jevois/Debug/Log.H
+20
+#include <
+jevois/Util/Async.H
+21
+#include <
+jevois/DNN/Utils.H
+22
+#include <nn_detect_common.h>
+23
+24
+#include <stdlib.h>
+25
+#include <stdio.h>
+26
+#include <string.h>
+27
+#include <math.h>
+28
+#include <float.h>
+29
+#include <future>
+30
+31
+32
+// ####################################################################################################
+33
+void
+jevois::dnn::PostProcessorDetectYOLO::onParamChange(postprocessor::anchors
+const
+&, std::string
+const
+& val)
+34
+35
+itsAnchors.clear();
+36
+if
+(val.empty())
+return
+37
+38
+auto
+tok =
+jevois::split
+(val,
+"\\s*;\\s*"
+);
+39
+for
+(std::string
+const
+& t : tok)
+40
+41
+auto
+atok =
+jevois::split
+(t,
+"\\s*,\\s*"
+);
+42
+if
+(atok.size() & 1)
+LFATAL
+"Odd number of values not allowed in anchor spec ["
+<< t <<
+']'
+);
+43
+std::vector<float> a;
+44
+for
+(std::string
+const
+& at : atok) a.emplace_back(std::stof(at));
+45
+itsAnchors.emplace_back(std::move(a));
+46
+47
+48
+49
+// ####################################################################################################
+50
+jevois::dnn::PostProcessorDetectYOLO::~PostProcessorDetectYOLO
+()
+51
+{ }
+52
+53
+// ####################################################################################################
+54
+void
+jevois::dnn::PostProcessorDetectYOLO::freeze
+bool
+doit)
+55
+56
+anchors::freeze(doit);
+57
+58
+59
+// ####################################################################################################
+60
+void
+jevois::dnn::PostProcessorDetectYOLO::yolo
+(std::vector<cv::Mat>
+const
+& outs, std::vector<int> & classIds,
+61
+std::vector<float> & confidences, std::vector<cv::Rect> & boxes,
+62
+size_t
+nclass,
+float
+boxThreshold,
+float
+confThreshold,
+63
+cv::Size
+const
+& bsiz,
+int
+fudge,
+size_t
+const
+maxbox,
+bool
+sigmo)
+64
+65
+if
+(nclass == 0) nclass = 1;
+// Assume 1 class if no list of classes was given
+66
+size_t
+const
+nouts = outs.size();
+67
+if
+(nouts == 0)
+LTHROW
+"No output tensors received"
+);
+68
+if
+(itsAnchors.size() != nouts)
+LTHROW
+"Need "
+<< nouts <<
+" sets of anchors"
+);
+69
+70
+// Various networks will yield their YOLO outputs in various orders. But our default anchors (and the doc for the
+71
+// anchors parameter) assumes order from large to small, e.g., first 52x52, then 26x26, then 13x13. So here we need to
+72
+// sort the outputs in decreasing size order to get the correct yolonum:
+73
+if
+(itsYoloNum.empty())
+74
+75
+for
+size_t
+i = 0; i < nouts; ++i) itsYoloNum.emplace_back(i);
+76
+std::sort(itsYoloNum.begin(), itsYoloNum.end(),
+77
+[&outs](
+int
+const
+& a,
+int
+const
+& b) { return outs[a].total() > outs[b].total(); });
+78
+79
+// Allow users to check our assignment:
+80
+for
+size_t
+i = 0; i < nouts; ++i)
+81
+82
+int
+const
+yn = itsYoloNum[i];
+83
+std::vector<float>
+const
+& anc = itsAnchors[yn];
+84
+std::string vstr;
+85
+for
+size_t
+a = 0; a < anc.size(); a += 2) vstr +=
+jevois::sformat
+"%.2f,%.2f "
+, anc[a], anc[a+1]);
+86
+LINFO
+"Out "
+<< i <<
+": "
+<<
+jevois::dnn::shapestr
+(outs[i]) <<
+", scale=1/"
+<< (8<<yn) <<
+87
+", anchors=[ "
+<< vstr <<
+']'
+);
+88
+89
+90
+91
+// Run each scale in a thread:
+92
+float
+scale_xy = scalexy::get();
+93
+std::vector<std::future<void>> fvec;
+94
+95
+for
+size_t
+i = 0; i < nouts; ++i)
+96
+fvec.emplace_back(
+jevois::async
+([&](
+size_t
+i)
+97
+{ yolo_one(outs[i], classIds, confidences, boxes, nclass, itsYoloNum[i], boxThreshold, confThreshold,
+98
+bsiz, fudge, maxbox, sigmo, scale_xy); }, i));
+99
+100
+// Use joinall() to get() all futures and throw a single consolidated exception if any thread threw:
+101
+jevois::joinall
+(fvec);
+102
+103
+104
+// ####################################################################################################
+105
+void
+jevois::dnn::PostProcessorDetectYOLO::yolo_one(cv::Mat
+const
+& out, std::vector<int> & classIds,
+106
+std::vector<float> & confidences, std::vector<cv::Rect> & boxes,
+107
+size_t
+nclass,
+int
+yolonum,
+float
+boxThreshold,
+108
+float
+confThreshold, cv::Size
+const
+& bsiz,
+int
+fudge,
+109
+size_t
+maxbox,
+bool
+sigmo,
+float
+scale_xy)
+110
+111
+if
+(out.type() != CV_32F)
+LTHROW
+"Need FLOAT32 data"
+);
+112
+cv::MatSize
+const
+& msiz = out.size;
+113
+if
+(msiz.dims() != 4 || msiz[0] != 1)
+114
+LTHROW
+"Incorrect tensor size: need 1xCxHxW or 1xHxWxC, got "
+<<
+jevois::dnn::shapestr
+(out));
+115
+116
+// C=(dim[1] or dims[3]) is (coords = 4 + 1 for box score + classes) * n_anchors:
+117
+// n_anchors = 5 for yoloface, yolov2
+118
+// n_anchors = 3 for yolov3/v4/v5/v7 and those have 3 separate output tensors for 3 scales
+119
+120
+// Try NCHW first (e.g., from NPU):
+121
+bool
+nchw =
+true
+122
+int
+w = msiz[3];
+123
+int
+= msiz[2];
+124
+int
+constexpr
+coords = 4;
+125
+int
+const
+bbsize = coords + 1 + nclass;
+126
+int
+n = msiz[1] / bbsize;
+127
+if
+(msiz[1] % bbsize)
+128
+129
+// Ok, try NHWC (e.g., YOLOv5 on Hailo):
+130
+nchw =
+false
+131
+w = msiz[2];
+132
+= msiz[1];
+133
+n = msiz[3] / bbsize;
+134
+135
+if
+(msiz[3] % bbsize)
+136
+LTHROW
+"Incorrect tensor size: need 1xCxHxW or 1xHxWxC where "
+137
+"C=num_anchors*(4 coords + 1 box_score + nclass object_scores), got "
+<<
+jevois::dnn::shapestr
+(out) <<
+138
+", nclass="
+<< nclass <<
+", num_anchors="
+<< itsAnchors[yolonum].size()/2);
+139
+140
+141
+float
+const
+bfac = 1.0F / (8 << yolonum);
+142
+size_t
+const
+total =
+* w * n * bbsize;
+143
+if
+(total != out.total())
+LTHROW
+"Ooops"
+);
+144
+std::vector<float>
+const
+& biases = itsAnchors[yolonum];
+145
+if
+int
+(biases.size()) != n*2)
+146
+LTHROW
+(n <<
+" boxes received but only "
+<< biases.size()/2 <<
+" boxw,boxh anchors provided"
+);
+147
+148
+// Stride from one box field (coords, score, class) to the next:
+149
+size_t
+const
+stride = nchw ?
+* w : 1;
+150
+size_t
+const
+nextloc = nchw ? 1 : n * bbsize;
+151
+float
+const
+* locptr = (
+float
+const
+*)out.data;
+152
+size_t
+const
+ncs = nclass * stride;
+153
+154
+// Loop over all locations:
+155
+for
+int
+row = 0; row <
+; ++row)
+156
+for
+int
+col = 0; col < w; ++col)
+157
+158
+// locptr points to the set of boxes at the current location. Initialize ptr to the first box:
+159
+float
+const
+* ptr = locptr;
+160
+161
+// Loop over all boxes per location:
+162
+for
+int
+nn = 0; nn < n; ++nn)
+163
+164
+// Apply logistic activation to box score:
+165
+float
+box_score = ptr[coords * stride];
+166
+if
+(sigmo) box_score =
+jevois::dnn::sigmoid
+(box_score);
+167
+168
+if
+(box_score > boxThreshold)
+169
+170
+// Get index of highest-scoring class and its score:
+171
+size_t
+const
+class_index = (coords + 1) * stride;
+172
+size_t
+maxidx = 0;
+float
+prob = 0.0F;
+173
+for
+size_t
+k = 0; k < ncs; k += stride)
+174
+if
+(ptr[class_index + k] > prob) { prob = ptr[class_index + k]; maxidx = k; }
+175
+if
+(sigmo) prob =
+jevois::dnn::sigmoid
+(prob);
+176
+177
+// Combine box and class scores:
+178
+prob *= box_score;
+179
+180
+// If best class was above threshold, keep that box:
+181
+if
+(prob > confThreshold)
+182
+183
+// Decode the box and scale it to input blob dims:
+184
+cv::Rect b;
+185
+186
+if
+(scale_xy)
+187
+188
+// New coordinates style, as in YOLOv5/7:
+189
+float
+bx = ptr[0 * stride], by = ptr[1 * stride], bw = ptr[2 * stride], bh = ptr[3 * stride];
+190
+if
+(sigmo)
+191
+192
+bx =
+jevois::dnn::sigmoid
+(bx);
+193
+by =
+jevois::dnn::sigmoid
+(by);
+194
+bw =
+jevois::dnn::sigmoid
+(bw);
+195
+bh =
+jevois::dnn::sigmoid
+(bh);
+196
+197
+198
+b.width = bw * bw * 4.0f * biases[2*nn] * bfac * bsiz.width / w + 0.499F;
+199
+b.height = bh * bh * 4.0F * biases[2*nn+1] * bfac * bsiz.height /
++ 0.499F;
+200
+b.x = (bx * scale_xy - 0.5F + col) * bsiz.width / w + 0.499F - b.width / 2;
+201
+b.y = (by * scale_xy - 0.5F + row) * bsiz.height /
++ 0.499F - b.height / 2;
+202
+203
+else
+204
+205
+// Old-style coordinates, as in YOLOv2/3/4:
+206
+b.width = expf(ptr[2 * stride]) * biases[2*nn] * bfac * bsiz.width / w + 0.499F;
+207
+b.height = expf(ptr[3 * stride]) * biases[2*nn+1] * bfac * bsiz.height /
++ 0.499F;
+208
+b.x = (col +
+jevois::dnn::sigmoid
+(ptr[0 * stride])) * bsiz.width / w + 0.499F - b.width / 2;
+209
+b.y = (row +
+jevois::dnn::sigmoid
+(ptr[1 * stride])) * bsiz.height /
++ 0.499F - b.height / 2;
+210
+211
+212
+std::lock_guard<std::mutex> _(itsOutMtx);
+213
+boxes.emplace_back(b);
+214
+classIds.emplace_back(maxidx / stride + fudge);
+215
+confidences.emplace_back(prob);
+216
+if
+(classIds.size() > maxbox)
+return
+// Stop if too many boxes
+217
+218
+219
+220
+// Next box within the current location:
+221
+ptr += bbsize * stride;
+222
+223
+// Next location:
+224
+locptr += nextloc;
+225
+226
+Async.H
+Utils.H
+int h
+Definition
+GUIhelper.C:2580
+Log.H
+LTHROW
+#define LTHROW(msg)
+Definition
+Log.H:251
+PostProcessorDetectYOLO.H
+jevois::dnn::PostProcessorDetectYOLO::~PostProcessorDetectYOLO
+virtual ~PostProcessorDetectYOLO()
+Destructor.
+Definition
+PostProcessorDetectYOLO.C:50
+jevois::dnn::PostProcessorDetectYOLO::yolo
+void yolo(std::vector< cv::Mat > const &outs, std::vector< int > &classIds, std::vector< float > &confidences, std::vector< cv::Rect > &boxes, size_t nclass, float boxThreshold, float confThreshold, cv::Size const &bsiz, int fudge, size_t const maxbox, bool sigmo)
+Generic raw YOLO processing.
+Definition
+PostProcessorDetectYOLO.C:60
+jevois::dnn::PostProcessorDetectYOLO::freeze
+void freeze(bool doit)
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+PostProcessorDetectYOLO.C:54
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+LINFO
+#define LINFO(msg)
+Convenience macro for users to print out console or syslog messages, INFO level.
+Definition
+Log.H:194
+jevois::dnn::sigmoid
+float sigmoid(float x)
+Compute sigmoid using fastexp.
+jevois::dnn::shapestr
+std::string shapestr(cv::Mat const &m)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional cv::Mat with data type TYPE.
+Definition
+Utils.C:126
+jevois::joinall
+std::vector< T > joinall(std::vector< std::future< T > > &fvec, bool multiline=true)
+Collect results from several async threads that are all returning a T result.
+jevois::async
+std::future< std::invoke_result_t< std::decay_t< Function >, std::decay_t< Args >... > > async(Function &&f, Args &&... args)
+Async execution using a thread pool.
+jevois::sformat
+std::string sformat(char const *fmt,...) __attribute__((format(__printf__
+Create a string using printf style arguments.
+Definition
+Utils.C:440
+jevois::split
+std::vector< std::string > split(std::string const &input, std::string const &regex="\\s+")
+Split string into vector of tokens using a regex to specify what to split on; default regex splits by...
+Definition
+Utils.C:270
+src
+jevois
+DNN
+PostProcessorDetectYOLO.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/PostProcessorSegment_8C_source.html
+TITRE: JeVois: src/jevois/DNN/PostProcessorSegment.C Source File
+================================================================================
+
+JeVois: src/jevois/DNN/PostProcessorSegment.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+PostProcessorSegment.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#include <
+jevois/DNN/PostProcessorSegment.H
+19
+#include <
+jevois/DNN/PreProcessor.H
+20
+#include <
+jevois/DNN/Utils.H
+21
+#include <
+jevois/Image/RawImageOps.H
+22
+#include <
+jevois/Core/Module.H
+23
+#include <
+jevois/GPU/GUIhelper.H
+24
+#include <
+jevois/Types/ObjReco.H
+25
+26
+#include <opencv2/dnn.hpp>
+27
+28
+// ####################################################################################################
+29
+jevois::dnn::PostProcessorSegment::~PostProcessorSegment
+()
+30
+31
+#ifdef JEVOIS_PRO
+32
+if
+(itsHelper) itsHelper->
+releaseImage
+"ppsr"
+);
+33
+#endif
+34
+35
+36
+// ####################################################################################################
+37
+void
+jevois::dnn::PostProcessorSegment::freeze
+bool
+doit)
+38
+39
+segtype::freeze(doit);
+40
+41
+42
+// ####################################################################################################
+43
+void
+jevois::dnn::PostProcessorSegment::postInit
+()
+44
+45
+// Colormap from pascal VOC segmentation benchmark:
+46
+for
+size_t
+i = 0; i < 256; ++i)
+47
+48
+uint32_t & c = itsColor[i]; c = 0;
+49
+uint32_t ind = i;
+50
+51
+for
+int
+shift = 7; shift >= 0; --shift)
+52
+53
+for
+int
+channel = 0; channel < 3; ++channel) c |= ((ind >> channel) & 1) << (shift + 8 * (3-channel));
+54
+ind >>= 3;
+55
+56
+57
+58
+59
+// ####################################################################################################
+60
+template
+typename
+T>
+61
+void
+jevois::dnn::PostProcessorSegment::process
+(cv::Mat
+const
+& results)
+62
+63
+int
+const
+bgclass = bgid::get();
+64
+uint32_t
+const
+alph = alpha::get() << 24;
+65
+cv::MatSize
+const
+rs = results.size;
+66
+const
+* r =
+reinterpret_cast<
+const
+(results.data);
+67
+const
+thresh(cthresh::get() * 0.01F);
+68
+69
+switch
+(segtype::get())
+70
+71
+// ----------------------------------------------------------------------------------------------------
+72
+case
+jevois::dnn::postprocessor::SegType::ClassesHWC:
+73
+74
+// tensor should be 4D 1xHxWxC, where C is the number of classes. We pick the class index with max value and
+75
+// apply the colormap to it:
+76
+if
+(rs.dims() != 4 || rs[0] != 1)
+LTHROW
+"Need 1xHxWxC for C classes"
+);
+77
+int
+const
+numclass = rs[3];
+int
+const
+siz = rs[1] * rs[2] * numclass;
+78
+79
+// Apply colormap, converting from RGB to RGBA:
+80
+itsOverlay = cv::Mat(rs[1], rs[2], CV_8UC4);
+81
+uint32_t * im =
+reinterpret_cast<
+uint32_t *
+(itsOverlay.data);
+82
+83
+for
+int
+i = 0; i < siz; i += numclass)
+84
+85
+int
+maxc = -1; T maxval = thresh;
+86
+for
+int
+c = 0; c < numclass; ++c)
+87
+88
+T v = *r++;
+89
+if
+(v > maxval) { maxval = v; maxc = c; }
+90
+91
+92
+// Use full transparent for class bgclass or if out of bounds, otherwise colormap:
+93
+if
+(maxc < 0 || maxc > 255 || maxc == bgclass) *im++ = 0;
+else
+*im++ = itsColor[maxc] | alph;
+94
+95
+96
+break
+97
+98
+// ----------------------------------------------------------------------------------------------------
+99
+case
+jevois::dnn::postprocessor::SegType::ClassesCHW:
+100
+101
+// tensor should be 4D 1xCxHxW, where C is the number of classes. We pick the class index with max value and
+102
+// apply the colormap to it:
+103
+if
+(rs.dims() != 4 || rs[0] != 1)
+LTHROW
+"Need 1xCxHxW for C classes"
+);
+104
+int
+const
+numclass = rs[1];
+int
+const
+hw = rs[2] * rs[3];
+105
+106
+// Apply colormap, converting from RGB to RGBA:
+107
+itsOverlay = cv::Mat(rs[2], rs[3], CV_8UC4);
+108
+uint32_t * im =
+reinterpret_cast<
+uint32_t *
+(itsOverlay.data);
+109
+110
+for
+int
+i = 0; i < hw; ++i)
+111
+112
+int
+maxc = -1; T maxval = thresh;
+113
+for
+int
+c = 0; c < numclass; ++c)
+114
+115
+T v = results.at<T>(i + c * hw);
+116
+if
+(v > maxval) { maxval = v; maxc = c; }
+117
+118
+119
+// Use full transparent for class bgclass or if out of bounds, otherwise colormap:
+120
+if
+(maxc < 0 || maxc > 255 || maxc == bgclass) *im++ = 0;
+else
+*im++ = itsColor[maxc] | alph;
+121
+122
+123
+break
+124
+125
+// ----------------------------------------------------------------------------------------------------
+126
+case
+jevois::dnn::postprocessor::SegType::ArgMax:
+127
+128
+// tensor should be 2D HxW, 3D 1xHxW, or 4D 1xHxWx1 and contain class ID in each pixel:
+129
+if
+(rs.dims() != 2 && (rs.dims() != 3 || rs[0] != 1) && (rs.dims() != 4 || rs[0] != 1 || rs[3] != 1))
+130
+LTHROW
+"Need shape HxW, 1xHxW, or 1xHxWx1 with class ID in each pixel"
+);
+131
+int
+const
+siz = rs[1] * rs[2];
+132
+133
+// Apply colormap, converting from RGB to RGBA:
+134
+itsOverlay = cv::Mat(rs[1], rs[2], CV_8UC4);
+135
+uint32_t * im =
+reinterpret_cast<
+uint32_t *
+(itsOverlay.data);
+136
+137
+for
+int
+i = 0; i < siz; ++i)
+138
+139
+// Use full transparent for class bgclass or if out of bounds, otherwise colormap:
+140
+int32_t
+const
+id
+= *r++;
+141
+if
+(id < 0 || id > 255 ||
+id
+== bgclass) *im++ = 0;
+else
+*im++ = itsColor[id] | alph;
+142
+143
+144
+break
+145
+146
+147
+148
+// ####################################################################################################
+149
+void
+jevois::dnn::PostProcessorSegment::process
+(std::vector<cv::Mat>
+const
+& outs,
+jevois::dnn::PreProcessor
+* preproc)
+150
+151
+try
+152
+153
+if
+(outs.size() != 1)
+LTHROW
+"Need exactly one output blob"
+);
+154
+155
+// Patch up the colormap if background class ID is 0:
+156
+if
+(bgid::get() != 0) itsColor[0] = 0xff0000;
+else
+itsColor[0] = 0;
+157
+158
+// Post-process:
+159
+cv::Mat
+const
+& results = outs[0];
+160
+161
+switch
+(results.type())
+162
+163
+case
+CV_8UC1: process<uint8_t>(results);
+break
+164
+case
+CV_16UC1: process<uint16_t>(results);
+break
+165
+case
+CV_32FC1: process<float>(results);
+break
+166
+case
+CV_32SC1: process<int32_t>(results);
+break
+167
+168
+default
+LTHROW
+"Unsupported data type in tensor "
+<<
+jevois::dnn::shapestr
+(results));
+169
+170
+171
+// Abort here if the received outputs were malformed:
+172
+catch
+(std::exception
+const
+& e)
+173
+174
+std::string err =
+"Selected segtype is "
++ segtype::strget() +
+" and network produced:\n\n"
+175
+for
+(cv::Mat
+const
+& m : outs) err +=
+"- "
+jevois::dnn::shapestr
+(m) +
+"\n"
+176
+err +=
+"\nFATAL ERROR(s):\n\n"
+177
+err += e.what();
+178
+LFATAL
+(err);
+179
+180
+181
+// Compute overlay corner coords within the input image, for use in report():
+182
+preproc->
+getUnscaledCropRect
+(0, itsTLx, itsTLy, itsBRx, itsBRy);
+183
+184
+185
+// ####################################################################################################
+186
+void
+jevois::dnn::PostProcessorSegment::report
+jevois::StdModule
+* mod,
+jevois::RawImage
+* outimg,
+187
+jevois::OptGUIhelper
+* helper,
+bool
+/*overlay*/
+bool
+/*idle*/
+188
+189
+// Remember our helper, will be used in destructor to free overlay OpenGL texture:
+190
+itsHelper = helper;
+191
+192
+// Outputs may not be ready yet:
+193
+if
+(itsOverlay.empty())
+return
+194
+195
+// If desired, draw boxes in output image:
+196
+if
+(outimg)
+197
+198
+// todo: blend into YUYV
+199
+200
+201
+#ifdef JEVOIS_PRO
+202
+// Draw the image on top of our input image, as a semi-transparent overlay. OpenGL will do scaling and blending:
+203
+if
+(helper)
+204
+205
+// Convert box coords from input image to display:
+206
+ImVec2 tl = helper->
+i2d
+(itsTLx, itsTLy), br = helper->
+i2d
+(itsBRx, itsBRy);
+207
+int
+dtlx = tl.x, dtly = tl.y;
+208
+unsigned
+short
+dw = br.x - tl.x, dh = br.y - tl.y;
+209
+210
+// Draw overlay:
+211
+helper->
+drawImage
+"ppsr"
+, itsOverlay,
+true
+, dtlx, dtly, dw, dh,
+false
+/* noalias */
+true
+/* isoverlay */
+);
+212
+213
+#else
+214
+(void)helper;
+// keep compiler happy
+215
+#endif
+216
+217
+if
+(mod)
+218
+219
+// todo send results to serial
+220
+221
+Utils.H
+GUIhelper.H
+LTHROW
+#define LTHROW(msg)
+Definition
+Log.H:251
+Module.H
+ObjReco.H
+PostProcessorSegment.H
+PreProcessor.H
+RawImageOps.H
+jevois::GUIhelper
+Helper class to assist modules in creating graphical and GUI elements.
+Definition
+GUIhelper.H:133
+jevois::GUIhelper::releaseImage
+void releaseImage(char const *name)
+Release an image.
+Definition
+GUIhelper.C:698
+jevois::GUIhelper::i2d
+ImVec2 i2d(ImVec2 p, char const *name=nullptr)
+Convert coordinates of a point from within a rendered image to on-screen.
+Definition
+GUIhelper.C:410
+jevois::GUIhelper::drawImage
+void drawImage(char const *name, RawImage const &img, int &x, int &y, unsigned short &w, unsigned short &h, bool noalias=false, bool isoverlay=false)
+Draw a RawImage, copying pixel data to an OpenGL texture.
+Definition
+GUIhelper.C:287
+jevois::RawImage
+A raw image as coming from a V4L2 Camera and/or being sent out to a USB Gadget.
+Definition
+RawImage.H:111
+jevois::StdModule
+Base class for a module that supports standardized serial messages.
+Definition
+Module.H:234
+jevois::dnn::PostProcessorSegment::~PostProcessorSegment
+virtual ~PostProcessorSegment()
+Destructor.
+Definition
+PostProcessorSegment.C:29
+jevois::dnn::PostProcessorSegment::process
+void process(std::vector< cv::Mat > const &outs, PreProcessor *preproc) override
+Process outputs and draw/send some results.
+Definition
+PostProcessorSegment.C:149
+jevois::dnn::PostProcessorSegment::report
+void report(jevois::StdModule *mod, jevois::RawImage *outimg=nullptr, jevois::OptGUIhelper *helper=nullptr, bool overlay=true, bool idle=false) override
+Report what happened in last process() to console/output video/GUI.
+Definition
+PostProcessorSegment.C:186
+jevois::dnn::PostProcessorSegment::freeze
+void freeze(bool doit) override
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+PostProcessorSegment.C:37
+jevois::dnn::PostProcessorSegment::postInit
+void postInit() override
+Create colormap in postInit()
+Definition
+PostProcessorSegment.C:43
+jevois::dnn::PreProcessor
+Pre-Processor for neural network pipeline.
+Definition
+PreProcessor.H:110
+jevois::dnn::PreProcessor::getUnscaledCropRect
+cv::Rect getUnscaledCropRect(size_t blobnum=0)
+Get unscaled crop rectangle in image coordinates.
+Definition
+PreProcessor.C:110
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+jevois::dnn::shapestr
+std::string shapestr(cv::Mat const &m)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional cv::Mat with data type TYPE.
+Definition
+Utils.C:126
+src
+jevois
+DNN
+PostProcessorSegment.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/PostProcessorClassify_8C_source.html
+TITRE: JeVois: src/jevois/DNN/PostProcessorClassify.C Source File
+================================================================================
+
+JeVois: src/jevois/DNN/PostProcessorClassify.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+PostProcessorClassify.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#include <
+jevois/DNN/PostProcessorClassify.H
+19
+#include <
+jevois/DNN/Utils.H
+20
+#include <
+jevois/Util/Utils.H
+21
+#include <
+jevois/Image/RawImageOps.H
+22
+#include <
+jevois/Core/Engine.H
+23
+#include <
+jevois/Core/Module.H
+24
+#include <
+jevois/GPU/GUIhelper.H
+25
+26
+// ####################################################################################################
+27
+jevois::dnn::PostProcessorClassify::~PostProcessorClassify
+()
+28
+{ }
+29
+30
+// ####################################################################################################
+31
+void
+jevois::dnn::PostProcessorClassify::freeze
+bool
+doit)
+32
+33
+classes::freeze(doit);
+34
+35
+36
+// ####################################################################################################
+37
+void
+jevois::dnn::PostProcessorClassify::onParamChange
+(postprocessor::classes
+const
+&, std::string
+const
+& val)
+38
+39
+if
+(val.empty()) { itsLabels.clear();
+return
+; }
+40
+itsLabels =
+jevois::dnn::getClassLabels
+(val);
+41
+42
+43
+// ####################################################################################################
+44
+void
+jevois::dnn::PostProcessorClassify::process
+(std::vector<cv::Mat>
+const
+& outs,
+jevois::dnn::PreProcessor
+*)
+45
+46
+if
+(outs.size() != 1 && itsFirstTime)
+47
+48
+itsFirstTime =
+false
+49
+LERROR
+"Expected 1 output tensor, got "
+<< outs.size() <<
+" - USING FIRST ONE"
+);
+50
+51
+52
+cv::Mat
+const
+& out = outs[0]; uint32_t
+const
+sz = out.total();
+53
+if
+(out.type() != CV_32F)
+LFATAL
+"Need FLOAT32 tensor"
+);
+54
+uint32_t topk = top::get();
+if
+(topk > sz) topk = sz;
+55
+uint32_t
+const
+fudge = classoffset::get();
+56
+itsObjRec.clear();
+57
+58
+uint32_t MaxClass[topk];
+float
+fMaxProb[topk];
+59
+if
+(softmax::get())
+60
+61
+float
+sm[out.total()];
+62
+jevois::dnn::softmax
+((
+float
+const
+*)out.data, sz, 1, 1.0F, sm,
+false
+);
+63
+jevois::dnn::topK
+(sm, fMaxProb, MaxClass, sz, topk);
+64
+65
+else
+jevois::dnn::topK
+((
+float
+const
+*)out.data, fMaxProb, MaxClass, sz, topk);
+66
+67
+// Collect the top-k results that are also above threshold, and, possibly that are named in the class file:
+68
+float
+const
+t = cthresh::get();
+float
+const
+fac = 100.0F * scorescale::get();
+bool
+namonly = namedonly::get();
+69
+70
+for
+(uint32_t i = 0; i < topk; ++i)
+71
+72
+if
+(fMaxProb[i] * fac < t)
+break
+73
+std::string
+const
+label =
+jevois::dnn::getLabel
+(itsLabels, MaxClass[i] + fudge, namonly);
+74
+if
+(namonly ==
+false
+|| label.empty() ==
+false
+// if namedonly desired, skip when class name is empty
+75
+76
+jevois::ObjReco
+{ fMaxProb[i] * fac, label };
+77
+itsObjRec.emplace_back(
+);
+78
+79
+80
+81
+82
+// ####################################################################################################
+83
+void
+jevois::dnn::PostProcessorClassify::report
+jevois::StdModule
+* mod,
+jevois::RawImage
+* outimg,
+84
+jevois::OptGUIhelper
+* helper,
+bool
+overlay,
+bool
+idle)
+85
+86
+uint32_t
+const
+topk = top::get();
+87
+88
+// If desired, write results to output image:
+89
+if
+(outimg && overlay)
+90
+91
+int
+y = 16;
+92
+jevois::rawimage::writeText
+(*outimg,
+jevois::sformat
+"Top-%u above %.2F%%"
+, topk, cthresh::get()),
+93
+220, y,
+jevois::yuyv::White
+);
+94
+y += 15;
+95
+96
+for
+jevois::ObjReco
+const
+: itsObjRec)
+97
+98
+jevois::rawimage::writeText
+(*outimg,
+jevois::sformat
+"%s: %.2F"
+.category.c_str(),
+.score),
+99
+220, y,
+jevois::yuyv::White
+);
+100
+y += 11;
+101
+102
+103
+104
+#ifdef JEVOIS_PRO
+105
+// If desired, write results to GUI:
+106
+if
+(helper)
+107
+108
+if
+(idle ==
+false
+&& ImGui::CollapsingHeader(
+"Classification results"
+, ImGuiTreeNodeFlags_DefaultOpen))
+109
+110
+ImGui::Text(
+"Top-%u classes above threshold %.2f"
+, topk, cthresh::get());
+111
+ImGui::Separator();
+112
+uint32_t done = 0;
+113
+for
+jevois::ObjReco
+const
+: itsObjRec) { ImGui::Text(
+"%s: %.2F"
+.category.c_str(),
+.score); ++done; }
+114
+while
+(done++ < topk) ImGui::TextUnformatted(
+"-"
+);
+115
+116
+117
+if
+(overlay)
+118
+119
+uint32_t done = 0;
+120
+for
+jevois::ObjReco
+const
+: itsObjRec)
+121
+{ helper->
+itext
+jevois::sformat
+"%s: %.2F"
+.category.c_str(),
+.score)); ++done; }
+122
+while
+(done++ < topk) helper->
+itext
+"-"
+);
+123
+124
+125
+#else
+126
+(void)idle; (void)helper;
+// keep compiler happy
+127
+#endif
+128
+129
+// If desired, send results to serial port:
+130
+if
+(mod && serialreport::get()) mod->
+sendSerialObjReco
+(itsObjRec);
+131
+132
+133
+// ####################################################################################################
+134
+std::vector<jevois::ObjReco>
+const
+jevois::dnn::PostProcessorClassify::latestRecognitions
+()
+const
+135
+return
+itsObjRec; }
+Utils.H
+Engine.H
+#define o
+Definition
+Font10x20.C:6
+GUIhelper.H
+Module.H
+PostProcessorClassify.H
+RawImageOps.H
+Utils.H
+jevois::GUIhelper
+Helper class to assist modules in creating graphical and GUI elements.
+Definition
+GUIhelper.H:133
+jevois::GUIhelper::itext
+void itext(char const *txt, ImU32 const &col=IM_COL32_BLACK_TRANS, int line=-1)
+Draw some overlay text on top of an image.
+Definition
+GUIhelper.C:664
+jevois::RawImage
+A raw image as coming from a V4L2 Camera and/or being sent out to a USB Gadget.
+Definition
+RawImage.H:111
+jevois::StdModule
+Base class for a module that supports standardized serial messages.
+Definition
+Module.H:234
+jevois::StdModule::sendSerialObjReco
+void sendSerialObjReco(std::vector< ObjReco > const &res)
+Send a standardized object recognition message.
+Definition
+Module.C:535
+jevois::dnn::PostProcessorClassify::onParamChange
+void onParamChange(postprocessor::classes const &param, std::string const &val) override
+Definition
+PostProcessorClassify.C:37
+jevois::dnn::PostProcessorClassify::latestRecognitions
+std::vector< ObjReco > const & latestRecognitions() const
+Get the latest recognition results, use with caution, not thread-safe.
+Definition
+PostProcessorClassify.C:134
+jevois::dnn::PostProcessorClassify::freeze
+void freeze(bool doit) override
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+PostProcessorClassify.C:31
+jevois::dnn::PostProcessorClassify::process
+void process(std::vector< cv::Mat > const &outs, PreProcessor *preproc) override
+Process outputs and draw/send some results.
+Definition
+PostProcessorClassify.C:44
+jevois::dnn::PostProcessorClassify::~PostProcessorClassify
+virtual ~PostProcessorClassify()
+Destructor.
+Definition
+PostProcessorClassify.C:27
+jevois::dnn::PostProcessorClassify::report
+void report(jevois::StdModule *mod, jevois::RawImage *outimg=nullptr, jevois::OptGUIhelper *helper=nullptr, bool overlay=true, bool idle=false) override
+Report what happened in last process() to console/output video/GUI.
+Definition
+PostProcessorClassify.C:83
+jevois::dnn::PreProcessor
+Pre-Processor for neural network pipeline.
+Definition
+PreProcessor.H:110
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+LERROR
+#define LERROR(msg)
+Convenience macro for users to print out console or syslog messages, ERROR level.
+Definition
+Log.H:211
+jevois::dnn::getClassLabels
+std::map< int, std::string > getClassLabels(std::string const &arg)
+Get class labels from either a list or a file.
+Definition
+Utils.C:25
+jevois::dnn::softmax
+size_t softmax(float const *input, size_t const n, size_t const stride, float const fac, float *output, bool maxonly)
+Apply softmax to a float vector.
+Definition
+Utils.C:733
+jevois::dnn::getLabel
+std::string getLabel(std::map< int, std::string > const &labels, int id, bool namedonly=false)
+Get a label from an id.
+Definition
+Utils.C:85
+jevois::dnn::topK
+void topK(float const *pfProb, float *pfMaxProb, uint32_t *pMaxClass, uint32_t outputCount, uint32_t topNum)
+Get top-k entries and their indices.
+Definition
+Utils.C:106
+jevois::rawimage::writeText
+void writeText(RawImage &img, std::string const &txt, int x, int y, unsigned int col, Font font=Font6x10)
+Write some text in an image.
+Definition
+RawImageOps.C:690
+jevois::sformat
+std::string sformat(char const *fmt,...) __attribute__((format(__printf__
+Create a string using printf style arguments.
+Definition
+Utils.C:440
+jevois::yuyv::White
+unsigned short constexpr White
+YUYV color value.
+Definition
+RawImage.H:59
+jevois::ObjReco
+A trivial struct to store object recognition results.
+Definition
+ObjReco.H:25
+src
+jevois
+DNN
+PostProcessorClassify.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/classjevois_1_1dnn_1_1PostProcessorPython.html
+TITRE: JeVois: jevois::dnn::PostProcessorPython Class Reference
+================================================================================
+
+Post-Processor for neural network pipeline.
+This is the last step in a deep neural network processing
+Pipeline
+. This post-processor calls a python implementation to do the actual post-processing work.
+Definition at line
+32
+of file
+PostProcessorPython.H
+
+
+================================================================================
+URL: http://jevois.org/doc/classjevois_1_1dnn_1_1PostProcessorDetectYOLO.html
+TITRE: JeVois: jevois::dnn::PostProcessorDetectYOLO Class Reference
+================================================================================
+
+Post-Processor sub-component for raw YOLO decoding.
+Definition at line
+27
+of file
+PostProcessorDetectYOLO.H
+

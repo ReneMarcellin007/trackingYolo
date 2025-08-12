@@ -1,0 +1,2608 @@
+DOCUMENTATION JEVOIS - PARTIE 2
+Catégorie principale: POSTPROCESSOR
+Nombre de documents: 2
+================================================================================
+
+
+================================================================================
+URL: http://jevois.org/doc/PostProcessorPose_8C_source.html
+TITRE: JeVois: src/jevois/DNN/PostProcessorPose.C Source File
+================================================================================
+
+JeVois: src/jevois/DNN/PostProcessorPose.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+PostProcessorPose.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#include <
+jevois/DNN/PostProcessorPose.H
+19
+#include <
+jevois/DNN/PreProcessor.H
+20
+#include <
+jevois/DNN/Utils.H
+21
+#include <
+jevois/Util/Utils.H
+22
+#include <
+jevois/Image/RawImageOps.H
+23
+#include <
+jevois/Core/Engine.H
+24
+#include <
+jevois/Core/Module.H
+25
+#include <
+jevois/GPU/GUIhelper.H
+26
+27
+#ifdef JEVOIS_PRO
+28
+#include <
+jevois/DNN/NetworkHailo.H
+29
+#include <jevois/DNN/hailo/yolov8pose_postprocess.hpp>
+30
+#endif
+31
+32
+#include <opencv2/dnn.hpp>
+33
+34
+// ####################################################################################################
+35
+jevois::dnn::PostProcessorPose::~PostProcessorPose
+()
+36
+{ }
+37
+38
+// ####################################################################################################
+39
+void
+jevois::dnn::PostProcessorPose::freeze
+bool
+doit)
+40
+41
+classes::freeze(doit);
+42
+posetype::freeze(doit);
+43
+skeleton::freeze(doit);
+44
+45
+46
+// ####################################################################################################
+47
+void
+jevois::dnn::PostProcessorPose::onParamChange
+(postprocessor::classes
+const
+&, std::string
+const
+& val)
+48
+49
+if
+(val.empty()) { itsLabels.clear();
+return
+; }
+50
+itsLabels =
+jevois::dnn::getClassLabels
+(val);
+51
+52
+53
+// ####################################################################################################
+54
+void
+jevois::dnn::PostProcessorPose::onParamChange
+(postprocessor::skeleton
+const
+&, std::string
+const
+& val)
+55
+56
+itsSkeletonDef.reset(
+new
+jevois::PoseSkeletonDefinition
+(val));
+57
+58
+59
+// ####################################################################################################
+60
+void
+jevois::dnn::PostProcessorPose::process
+(std::vector<cv::Mat>
+const
+& outs,
+jevois::dnn::PreProcessor
+* preproc)
+61
+62
+if
+(outs.empty())
+LFATAL
+"No outputs received, we need at least one."
+);
+63
+float
+const
+confThreshold = cthresh::get() * 0.01F;
+64
+float
+const
+nmsThreshold = nms::get() * 0.01F;
+65
+float
+const
+jointThreshold = jthresh::get() * 0.01F;
+66
+bool
+const
+sigmo = sigmoid::get();
+67
+bool
+const
+clampbox = boxclamp::get();
+68
+int
+const
+fudge = classoffset::get();
+69
+itsImageSize = preproc->
+imagesize
+();
+70
+size_t
+const
+boxmax = maxnbox::get();
+71
+72
+// Clear any old results:
+73
+itsDetections.clear();
+74
+itsSkeletons.clear();
+75
+76
+// To draw boxes, we will need to:
+77
+// - scale from [0..1]x[0..1] to blobw x blobh
+78
+// - scale and center from blobw x blobh to input image w x h, provided by PreProcessor::b2i()
+79
+// - when using the GUI, we further scale and translate to OpenGL display coordinates using GUIhelper::i2d()
+80
+// Here we assume that the first blob sets the input size.
+81
+cv::Size
+const
+bsiz = preproc->
+blobsize
+(0);
+82
+83
+// We keep 3 vectors here instead of creating a class to hold all of the data because OpenCV will need that for
+84
+// non-maximum suppression:
+85
+std::vector<int> classIds;
+86
+std::vector<float> confidences;
+87
+std::vector<cv::Rect> boxes;
+88
+// Initially we will store 1 skeleton for each box above threshold. After NMS on boxes, we will keep only the best
+89
+// boxes and their associated best skeletons:
+90
+std::vector<PoseSkeleton> skeletons;
+91
+92
+// Here we scale the coords from [0..1]x[0..1] to blobw x blobh and then to image w x h:
+93
+try
+94
+95
+switch
+(posetype::get())
+96
+97
+#ifdef JEVOIS_PRO
+98
+// ----------------------------------------------------------------------------------------------------
+99
+case
+jevois::dnn::postprocessor::PoseType::YOLOv8HAILO:
+100
+101
+// Network produces 9 output blobs, which should not be dequantized:
+102
+if
+(outs.size() != 9)
+LTHROW
+"Expected 9 quantized output blobs from split YOLOv8-pose Hailo network"
+);
+103
+if
+(outs[0].type() == CV_32F)
+LTHROW
+"Expected quantized outputs, turn 'dequant' off"
+);
+104
+105
+// We need the network to be of type Hailo so we can get the quantized output tensors and their Hailo tensor
+106
+// infos. We assume that there is a sub-component named "network" that is a sibling of us:
+107
+std::vector<std::string> dd =
+jevois::split
+Component::descriptor
+(),
+":"
+); dd.pop_back();
+108
+std::shared_ptr<jevois::Component> comp = engine()->
+getComponent
+(dd[0]); dd.erase(dd.begin());
+109
+for
+(std::string
+const
+& c : dd) { comp = comp->getSubComponent(c);
+if
+(!comp)
+LFATAL
+"Internal error"
+); }
+110
+auto
+net = comp->getSubComponent<
+jevois::dnn::NetworkHailo
+>(
+"network"
+);
+111
+std::vector<hailo_vstream_info_t> outinfos = net->
+outputInfos
+();
+112
+113
+// Create a Hailo ROI with the quantized tensors:
+114
+itsROI = std::make_shared<HailoROI>(HailoROI(HailoBBox(0.0f, 0.0f, 1.0f, 1.0f)));
+115
+for
+size_t
+i = 0; i < outs.size(); ++i)
+116
+itsROI->add_tensor(std::make_shared<HailoTensor>(outs[i].data, outinfos[i]));
+117
+118
+// Post-process using Hailo code:
+119
+int
+constexpr
+regression_length = 15;
+120
+std::vector<int>
+const
+strides = { 8, 16, 32 };
+121
+std::vector<int>
+const
+network_dims = { bsiz.width, bsiz.height };
+122
+123
+std::vector<HailoTensorPtr> tensors = itsROI->get_tensors();
+124
+auto
+filtered_decodings =
+yolov8pose_postprocess
+(tensors, network_dims, strides,
+125
+regression_length, 1
+/* NUM_CLASSES */
+, confThreshold,
+126
+nmsThreshold);
+127
+128
+// Collect both unscaled boxes for further keypoint processing, and scaled boxes for display in report():
+129
+itsDetections.clear();
+130
+std::vector<HailoDetection> detections;
+131
+for
+auto
+& dec : filtered_decodings)
+132
+133
+// Unscaled boxes:
+134
+HailoDetection & detbox = dec.detection_box;
+135
+detections.push_back(detbox);
+//dec.detection_box);
+136
+137
+// Scaled boxes:
+138
+if
+(detbox.get_confidence() == 0.0)
+continue
+139
+140
+HailoBBox box = detbox.get_bbox();
+141
+float
+xmin = box.xmin() * bsiz.width, ymin = box.ymin() * bsiz.height;
+142
+float
+xmax = box.xmax() * bsiz.width, ymax = box.ymax() * bsiz.height;
+143
+preproc->
+b2i
+(xmin, ymin);
+144
+preproc->
+b2i
+(xmax, ymax);
+145
+146
+jevois::ObjReco
+{ detbox.get_confidence() * 100.0f, detbox.get_label() };
+147
+std::vector<jevois::ObjReco> ov; ov.emplace_back(
+);
+148
+jevois::ObjDetect
+od { int(xmin), int(ymin), int(xmax), int(ymax), ov, std::vector<cv::Point>() };
+149
+itsDetections.emplace_back(od);
+150
+151
+152
+hailo_common::add_detections(itsROI, detections);
+153
+154
+itsKeypointsAndPairs =
+filter_keypoints
+(filtered_decodings, network_dims, jointThreshold);
+155
+156
+// Scale all the keypoints and pairs (links):
+157
+for
+auto
+& keypoint : itsKeypointsAndPairs.first)
+158
+159
+float
+xs = keypoint.xs * bsiz.width, ys = keypoint.ys * bsiz.height;
+160
+preproc->
+b2i
+(xs, ys);
+161
+keypoint.xs = xs; keypoint.ys = ys;
+162
+163
+164
+for
+(PairPairs & p : itsKeypointsAndPairs.second)
+165
+166
+float
+x1 = p.pt1.first * bsiz.width, y1 = p.pt1.second * bsiz.height;
+167
+float
+x2 = p.pt2.first * bsiz.width, y2 = p.pt2.second * bsiz.height;
+168
+preproc->
+b2i
+(x1, y1);
+169
+preproc->
+b2i
+(x2, y2);
+170
+p.pt1.first = x1; p.pt1.second = y1; p.pt2.first = x2; p.pt2.second = y2;
+171
+172
+173
+break
+174
+#endif
+175
+176
+// ----------------------------------------------------------------------------------------------------
+177
+case
+jevois::dnn::postprocessor::PoseType::YOLOv8t:
+178
+179
+if
+((outs.size() % 3) != 0)
+180
+LTHROW
+"Expected several (usually 3, for 3 strides) sets of 3 blobs: 1xHxWx64 (raw boxes), "
+181
+"1xHxWxC (class scores), and 1xHxWx3K for K skeleton keypoints [x,y,score]"
+);
+182
+183
+int
+stride = 8;
+184
+int
+constexpr
+reg_max = 16;
+185
+186
+for
+size_t
+idx = 0; idx < outs.size(); idx += 3)
+187
+188
+cv::Mat
+const
+& bx = outs[idx]; cv::MatSize
+const
+& bx_siz = bx.size;
+189
+if
+(bx_siz.dims() != 4 || bx_siz[3] != 4 * reg_max)
+LTHROW
+"Output "
+<< idx <<
+" is not 4D 1xHxWx64"
+);
+190
+float
+const
+* bx_data = (
+float
+const
+*)bx.data;
+191
+192
+cv::Mat
+const
+& cls = outs[idx + 1]; cv::MatSize
+const
+& cls_siz = cls.size;
+193
+if
+(cls_siz.dims() != 4)
+LTHROW
+"Output "
+<< idx <<
+" is not 4D 1xHxWxC"
+);
+194
+float
+const
+* cls_data = (
+float
+const
+*)cls.data;
+195
+size_t
+const
+nclass = cls_siz[3];
+196
+197
+cv::Mat
+const
+& kpt = outs[idx + 2]; cv::MatSize
+const
+& kpt_siz = kpt.size;
+198
+if
+(kpt_siz.dims() != 4 || (kpt_siz[3] % 3) != 0)
+LTHROW
+"Output "
+<< idx <<
+" is not 4D 1xHxWx3K"
+);
+199
+float
+const
+* kpt_data = (
+float
+const
+*)kpt.data;
+200
+size_t
+const
+nkpt = kpt_siz[3];
+201
+202
+unsigned
+int
+const
+nn = itsSkeletonDef->nodeNames.size();
+203
+if
+(nkpt != 3 * nn)
+204
+LFATAL
+"Received keypoint data size "
+<< nkpt <<
+" but skeleton has "
+<< nn <<
+205
+" joints: data size must be 3x number of joints, for [x,y,conf]"
+);
+206
+207
+for
+int
+i = 1; i < 3; ++i)
+208
+if
+(cls_siz[i] != bx_siz[i] || cls_siz[i] != kpt_siz[i])
+209
+LTHROW
+"Mismatched HxW sizes for outputs "
+<< idx <<
+" .. "
+<< idx + 1);
+210
+211
+// Keep track of detected joints so we can later set the links:
+212
+bool
+has_joint[nn];
+float
+jconf[nn];
+float
+jx[nn];
+float
+jy[nn];
+213
+214
+// Loop over all locations:
+215
+for
+int
+y = 0; y < cls_siz[1]; ++y)
+216
+for
+int
+x = 0; x < cls_siz[2]; ++x)
+217
+218
+// Get the top class score:
+219
+size_t
+best_idx = 0;
+float
+confidence = cls_data[0];
+220
+for
+size_t
+i = 1; i < nclass; ++i)
+221
+if
+(cls_data[i] > confidence) { confidence = cls_data[i]; best_idx = i; }
+222
+223
+// Apply sigmoid to it, if needed (output layer did not already have sigmoid activations):
+224
+if
+(sigmo) confidence =
+jevois::dnn::sigmoid
+(confidence);
+225
+226
+if
+(confidence >= confThreshold)
+227
+228
+// Decode a 4-coord box from 64 received values:
+229
+// Code here inspired from https://github.com/trinhtuanvubk/yolo-ncnn-cpp/blob/main/yolov8/yolov8.cpp
+230
+float
+dst[reg_max];
+231
+232
+float
+xmin = (x + 0.5f -
+softmax_dfl
+(bx_data, dst, reg_max)) * stride;
+233
+float
+ymin = (y + 0.5f -
+softmax_dfl
+(bx_data + reg_max, dst, reg_max)) * stride;
+234
+float
+xmax = (x + 0.5f +
+softmax_dfl
+(bx_data + 2 * reg_max, dst, reg_max)) * stride;
+235
+float
+ymax = (y + 0.5f +
+softmax_dfl
+(bx_data + 3 * reg_max, dst, reg_max)) * stride;
+236
+237
+// Store this detection:
+238
+boxes.emplace_back(cv::Rect(xmin, ymin, xmax - xmin, ymax - ymin));
+239
+classIds.emplace_back(
+int
+(best_idx) + fudge);
+240
+confidences.emplace_back(confidence);
+241
+242
+// Now the skeleton keypoints:
+243
+skeletons.emplace_back(
+jevois::PoseSkeleton
+(itsSkeletonDef));
+244
+jevois::PoseSkeleton
+& skel = skeletons.back();
+245
+246
+for
+unsigned
+int
+i = 0; i < nn; ++i)
+247
+248
+// With Hailo nets, we want sigmo for these scores but not box scores...
+249
+// May need another param for joint score sigmoid.
+250
+float
+kconf =
+jevois::dnn::sigmoid
+(kpt_data[3*i + 2]);
+251
+252
+if
+(kconf >= jointThreshold)
+253
+254
+float
+kpx = (x + kpt_data[3*i] * 2.0F) * stride;
+255
+float
+kpy = (y + kpt_data[3*i + 1] * 2.0F) * stride;
+256
+preproc->
+b2i
+(kpx, kpy);
+257
+skel.
+nodes
+.emplace_back(
+jevois::PoseSkeleton::Node
+{ i, kpx, kpy, kconf * 100.0F });
+258
+has_joint[i] =
+true
+; jconf[i] = kconf; jx[i] = kpx; jy[i] = kpy;
+259
+260
+else
+has_joint[i] =
+false
+261
+262
+263
+// Add the links if we have some keypoint:
+264
+if
+(skel.
+nodes
+.empty() ==
+false
+265
+266
+std::vector<std::pair<unsigned int, unsigned int>>
+const
+& linkdefs = skel.
+linkDefinitions
+();
+267
+unsigned
+int
+id
+= 0;
+268
+269
+for
+(std::pair<unsigned int, unsigned int>
+const
+& lnk : linkdefs)
+270
+271
+if
+(has_joint[lnk.first] && has_joint[lnk.second])
+272
+skel.
+links
+.emplace_back(
+jevois::PoseSkeleton::Link
+{ id, jx[lnk.first], jy[lnk.first],
+273
+jx[lnk.second], jy[lnk.second],
+274
+jconf[lnk.first]*jconf[lnk.second]*10000.0F });
+275
+++id;
+276
+277
+278
+279
+280
+// Move to the next location:
+281
+cls_data += nclass;
+282
+bx_data += 4 * reg_max;
+283
+kpt_data += nkpt;
+284
+285
+286
+// Move to the next scale:
+287
+stride *= 2;
+288
+289
+290
+break
+291
+292
+// ----------------------------------------------------------------------------------------------------
+293
+case
+jevois::dnn::postprocessor::PoseType::YOLOv8:
+294
+295
+if
+((outs.size() % 3) != 0)
+296
+LTHROW
+"Expected several (usually 3, for 3 strides) sets of 3 blobs: 1x64xHxW (raw boxes), "
+297
+"1xCxHxW (class scores), and 1x3KxHxW for K skeleton keypoints [x,y,score]"
+);
+298
+299
+int
+stride = 8;
+300
+int
+constexpr
+reg_max = 16;
+301
+302
+for
+size_t
+idx = 0; idx < outs.size(); idx += 3)
+303
+304
+cv::Mat
+const
+& bx = outs[idx]; cv::MatSize
+const
+& bx_siz = bx.size;
+305
+if
+(bx_siz.dims() != 4 || bx_siz[1] != 4 * reg_max)
+LTHROW
+"Output "
+<< idx <<
+" is not 4D 1x64xHxW"
+);
+306
+float
+const
+* bx_data = (
+float
+const
+*)bx.data;
+307
+308
+cv::Mat
+const
+& cls = outs[idx + 1]; cv::MatSize
+const
+& cls_siz = cls.size;
+309
+if
+(cls_siz.dims() != 4)
+LTHROW
+"Output "
+<< idx <<
+" is not 4D 1xCxHxW"
+);
+310
+float
+const
+* cls_data = (
+float
+const
+*)cls.data;
+311
+size_t
+const
+nclass = cls_siz[1];
+312
+313
+cv::Mat
+const
+& kpt = outs[idx + 2]; cv::MatSize
+const
+& kpt_siz = kpt.size;
+314
+if
+(kpt_siz.dims() != 4 || (kpt_siz[1] % 3) != 0)
+LTHROW
+"Output "
+<< idx <<
+" is not 4D 1x3KxHxW"
+);
+315
+float
+const
+* kpt_data = (
+float
+const
+*)kpt.data;
+316
+size_t
+const
+nkpt = kpt_siz[1];
+317
+318
+unsigned
+int
+const
+nn = itsSkeletonDef->nodeNames.size();
+319
+if
+(nkpt != 3 * nn)
+320
+LFATAL
+"Received keypoint data size "
+<< nkpt <<
+" but skeleton has "
+<< nn <<
+321
+" joints: data size must be 3x number of joints, for [x,y,conf]"
+);
+322
+323
+for
+int
+i = 2; i < 4; ++i)
+324
+if
+(cls_siz[i] != bx_siz[i] || cls_siz[i] != kpt_siz[i])
+325
+LTHROW
+"Mismatched HxW sizes for outputs "
+<< idx <<
+" .. "
+<< idx + 1);
+326
+327
+size_t
+const
+step = cls_siz[2] * cls_siz[3];
+// HxW
+328
+329
+// Keep track of detected joints so we can later set the links:
+330
+bool
+has_joint[nn];
+float
+jconf[nn];
+float
+jx[nn];
+float
+jy[nn];
+331
+332
+// Loop over all locations:
+333
+for
+int
+y = 0; y < cls_siz[2]; ++y)
+334
+for
+int
+x = 0; x < cls_siz[3]; ++x)
+335
+336
+// Get the top class score:
+337
+size_t
+best_idx = 0;
+float
+confidence = cls_data[0];
+338
+for
+size_t
+i = 1; i < nclass; ++i)
+339
+if
+(cls_data[i * step] > confidence) { confidence = cls_data[i * step]; best_idx = i; }
+340
+341
+// Apply sigmoid to it, if needed (output layer did not already have sigmoid activations):
+342
+if
+(sigmo) confidence =
+jevois::dnn::sigmoid
+(confidence);
+343
+344
+if
+(confidence >= confThreshold)
+345
+346
+// Decode a 4-coord box from 64 received values:
+347
+// Code here inspired from https://github.com/trinhtuanvubk/yolo-ncnn-cpp/blob/main/yolov8/yolov8.cpp
+348
+float
+dst[reg_max];
+349
+350
+float
+xmin = (x + 0.5f -
+softmax_dfl
+(bx_data, dst, reg_max, step)) * stride;
+351
+float
+ymin = (y + 0.5f -
+softmax_dfl
+(bx_data + reg_max * step, dst, reg_max, step)) * stride;
+352
+float
+xmax = (x + 0.5f +
+softmax_dfl
+(bx_data + 2 * reg_max * step, dst, reg_max, step)) * stride;
+353
+float
+ymax = (y + 0.5f +
+softmax_dfl
+(bx_data + 3 * reg_max * step, dst, reg_max, step)) * stride;
+354
+355
+// Store this detection:
+356
+boxes.emplace_back(cv::Rect(xmin, ymin, xmax - xmin, ymax - ymin));
+357
+classIds.emplace_back(
+int
+(best_idx) + fudge);
+358
+confidences.emplace_back(confidence);
+359
+360
+// Now the skeleton keypoints:
+361
+skeletons.emplace_back(
+jevois::PoseSkeleton
+(itsSkeletonDef));
+362
+jevois::PoseSkeleton
+& skel = skeletons.back();
+363
+364
+for
+unsigned
+int
+i = 0; i < nn; ++i)
+365
+366
+unsigned
+int
+const
+offset = 3 * i * step;
+367
+368
+// With Hailo nets, we want sigmo for these scores but not box scores...
+369
+// May need another param for joint score sigmoid.
+370
+float
+kconf =
+jevois::dnn::sigmoid
+(kpt_data[offset + 2 * step]);
+371
+372
+if
+(kconf >= jointThreshold)
+373
+374
+float
+kpx = (x + kpt_data[offset] * 2.0F) * stride;
+375
+float
+kpy = (y + kpt_data[offset + step] * 2.0F) * stride;
+376
+preproc->
+b2i
+(kpx, kpy);
+377
+skel.
+nodes
+.emplace_back(
+jevois::PoseSkeleton::Node
+{ i, kpx, kpy, kconf * 100.0F });
+378
+has_joint[i] =
+true
+; jconf[i] = kconf; jx[i] = kpx; jy[i] = kpy;
+379
+380
+else
+has_joint[i] =
+false
+381
+382
+383
+// Add the links if we have some keypoint:
+384
+if
+(skel.
+nodes
+.empty() ==
+false
+385
+386
+std::vector<std::pair<unsigned int, unsigned int>>
+const
+& linkdefs = skel.
+linkDefinitions
+();
+387
+unsigned
+int
+id
+= 0;
+388
+389
+for
+(std::pair<unsigned int, unsigned int>
+const
+& lnk : linkdefs)
+390
+391
+if
+(has_joint[lnk.first] && has_joint[lnk.second])
+392
+skel.
+links
+.emplace_back(
+jevois::PoseSkeleton::Link
+{ id, jx[lnk.first], jy[lnk.first],
+393
+jx[lnk.second], jy[lnk.second],
+394
+jconf[lnk.first]*jconf[lnk.second]*10000.0F });
+395
+++id;
+396
+397
+398
+399
+400
+// Move to the next location:
+401
+++cls_data; ++bx_data; ++kpt_data;
+402
+403
+404
+// Move to the next scale:
+405
+stride *= 2;
+406
+407
+408
+break
+409
+410
+default
+411
+// Do not use strget() here as it will throw!
+412
+LTHROW
+"Unsupported Post-processor posetype "
+<<
+int
+(posetype::get()));
+413
+414
+415
+416
+// Abort here if the received outputs were malformed:
+417
+catch
+(std::exception
+const
+& e)
+418
+419
+std::string err =
+"Selected posetype is "
++ posetype::strget() +
+" and network produced:\n\n"
+420
+for
+(cv::Mat
+const
+& m : outs) err +=
+"- "
+jevois::dnn::shapestr
+(m) +
+"\n"
+421
+err +=
+"\nFATAL ERROR(s):\n\n"
+422
+err += e.what();
+423
+LFATAL
+(err);
+424
+425
+426
+// Stop here if detections were already post-processed (e.g., YOLOv8HAILO); otherwise clean them up in the same way as
+427
+// we do in PostProcessorDetect:
+428
+if
+(itsDetections.empty() ==
+false
+return
+429
+430
+// Keep the code below in sync with PostProcessorDetect:
+431
+432
+// Cleanup overlapping boxes, either globally or per class, and possibly limit number of reported boxes:
+433
+std::vector<int> indices;
+434
+if
+(nmsperclass::get())
+435
+cv::dnn::NMSBoxesBatched(boxes, confidences, classIds, confThreshold, nmsThreshold, indices, 1.0F, boxmax);
+436
+else
+437
+cv::dnn::NMSBoxes(boxes, confidences, confThreshold, nmsThreshold, indices, 1.0F, boxmax);
+438
+439
+// Now clamp boxes to be within blob, and adjust the boxes from blob size to input image size:
+440
+for
+(cv::Rect & b : boxes)
+441
+442
+if
+(clampbox)
+jevois::dnn::clamp
+(b, bsiz.width, bsiz.height);
+443
+444
+cv::Point2f tl = b.tl(); preproc->
+b2i
+(tl.x, tl.y);
+445
+cv::Point2f br = b.br(); preproc->
+b2i
+(br.x, br.y);
+446
+b.x = tl.x; b.y = tl.y; b.width = br.x - tl.x; b.height = br.y - tl.y;
+447
+448
+449
+// Store results:
+450
+bool
+namonly = namedonly::get();
+451
+for
+size_t
+i = 0; i < indices.size(); ++i)
+452
+453
+int
+idx = indices[i];
+454
+cv::Rect
+const
+& box = boxes[idx];
+455
+std::string
+const
+label =
+jevois::dnn::getLabel
+(itsLabels, classIds[idx], namonly);
+456
+if
+(namonly ==
+false
+|| label.empty() ==
+false
+457
+458
+459
+std::vector<jevois::ObjReco> ov;
+460
+ov.emplace_back(
+jevois::ObjReco
+{ confidences[idx] * 100.0f, label } );
+461
+itsDetections.emplace_back(
+jevois::ObjDetect
+{ box.x, box.y, box.x+box.width, box.y+box.height,
+462
+std::move(ov), std::vector<cv::Point>() });
+463
+464
+// If we keep that box, also keep the associated skeleton:
+465
+itsSkeletons.emplace_back(std::move(skeletons[idx]));
+466
+467
+468
+469
+470
+471
+// ####################################################################################################
+472
+void
+jevois::dnn::PostProcessorPose::report
+jevois::StdModule
+* mod,
+jevois::RawImage
+* outimg,
+473
+jevois::OptGUIhelper
+* helper,
+bool
+overlay,
+474
+bool
+/*idle*/
+475
+476
+bool
+const
+serreport = serialreport::get();
+477
+478
+for
+jevois::ObjDetect
+const
+: itsDetections)
+479
+480
+std::string categ, label;
+481
+482
+if
+.reco.empty()) { categ =
+"unknown"
+; label =
+"unknown"
+; }
+483
+else
+{ categ =
+.reco[0].category; label =
+jevois::sformat
+"%s: %.2f"
+, categ.c_str(),
+.reco[0].score); }
+484
+485
+// If desired, draw boxes in output image:
+486
+if
+(outimg && overlay)
+487
+488
+jevois::rawimage::drawRect
+(*outimg,
+.tlx,
+.tly,
+.brx -
+.tlx,
+.bry -
+.tly, 2,
+jevois::yuyv::LightGreen
+);
+489
+jevois::rawimage::writeText
+(*outimg, label,
+.tlx + 6,
+.tly + 2,
+jevois::yuyv::LightGreen
+490
+jevois::rawimage::Font10x20
+);
+491
+492
+493
+#ifdef JEVOIS_PRO
+494
+// If desired, draw boxes on GUI:
+495
+if
+(helper)
+496
+497
+int
+col =
+jevois::dnn::stringToRGBA
+(categ, 0xff);
+498
+helper->
+drawRect
+.tlx,
+.tly,
+.brx,
+.bry, col,
+true
+);
+499
+helper->
+drawText
+.tlx + 3.0f,
+.tly + 3.0f, label.c_str(), col);
+500
+501
+#else
+502
+(void)helper;
+// keep compiler happy
+503
+#endif
+504
+505
+// If desired, send results to serial port:
+506
+if
+(mod && serreport) mod->
+sendSerialObjDetImg2D
+(itsImageSize.width, itsImageSize.height,
+);
+507
+508
+509
+// If desired, draw skeleton in output image:
+510
+if
+(outimg && overlay)
+511
+512
+#ifdef JEVOIS_PRO
+513
+for
+auto
+const
+& keypoint : itsKeypointsAndPairs.first)
+514
+jevois::rawimage::drawCircle
+(*outimg, keypoint.xs, keypoint.ys, 5, 2,
+jevois::yuyv::LightGreen
+);
+515
+516
+for
+(PairPairs
+const
+& p : itsKeypointsAndPairs.second)
+517
+jevois::rawimage::drawLine
+(*outimg, p.pt1.first, p.pt1.second, p.pt2.first, p.pt2.second,
+518
+2,
+jevois::yuyv::LightGreen
+);
+519
+#endif
+520
+521
+for
+jevois::PoseSkeleton
+const
+& skel : itsSkeletons)
+522
+523
+for
+jevois::PoseSkeleton::Node
+const
+& n : skel.nodes)
+524
+jevois::rawimage::drawCircle
+(*outimg, n.x, n.y, 5, 2,
+jevois::yuyv::LightGreen
+);
+525
+526
+for
+jevois::PoseSkeleton::Link
+const
+& lnk : skel.links)
+527
+jevois::rawimage::drawLine
+(*outimg, lnk.x1, lnk.y1, lnk.x2, lnk.y2, 2,
+jevois::yuyv::LightGreen
+);
+528
+529
+530
+531
+#ifdef JEVOIS_PRO
+532
+// If desired, draw skeleton on GUI:
+533
+if
+(helper)
+534
+535
+for
+auto
+const
+& keypoint : itsKeypointsAndPairs.first)
+536
+helper->
+drawCircle
+(keypoint.xs, keypoint.ys, 5, IM_COL32(255,0,0,255),
+true
+);
+537
+538
+for
+(PairPairs
+const
+& p : itsKeypointsAndPairs.second)
+539
+helper->
+drawLine
+(p.pt1.first, p.pt1.second, p.pt2.first, p.pt2.second, IM_COL32(255,0,0,255));
+540
+541
+for
+jevois::PoseSkeleton
+const
+& skel : itsSkeletons)
+542
+543
+for
+jevois::PoseSkeleton::Node
+const
+& n : skel.nodes)
+544
+helper->
+drawCircle
+(n.x, n.y, 5, skel.nodeColor(n.id),
+true
+);
+545
+546
+for
+jevois::PoseSkeleton::Link
+const
+& lnk : skel.links)
+547
+helper->
+drawLine
+(lnk.x1, lnk.y1, lnk.x2, lnk.y2, skel.linkColor(lnk.id));
+548
+549
+550
+#endif
+551
+552
+553
+554
+// ####################################################################################################
+555
+std::vector<jevois::ObjDetect>
+const
+jevois::dnn::PostProcessorPose::latestDetections
+()
+const
+556
+return
+itsDetections; }
+557
+558
+// ####################################################################################################
+559
+std::vector<jevois::PoseSkeleton>
+const
+jevois::dnn::PostProcessorPose::latestSkeletons
+()
+const
+560
+return
+itsSkeletons; }
+Utils.H
+Engine.H
+#define o
+Definition
+Font10x20.C:6
+GUIhelper.H
+LTHROW
+#define LTHROW(msg)
+Definition
+Log.H:251
+Module.H
+NetworkHailo.H
+PostProcessorPose.H
+PreProcessor.H
+RawImageOps.H
+Utils.H
+jevois::Component::descriptor
+std::string descriptor() const
+Get our full descriptor (including all parents) as [Instancename]:[...]:[...].
+Definition
+Component.C:276
+jevois::GUIhelper
+Helper class to assist modules in creating graphical and GUI elements.
+Definition
+GUIhelper.H:133
+jevois::GUIhelper::drawCircle
+void drawCircle(float x, float y, float r, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw circle over an image.
+Definition
+GUIhelper.C:608
+jevois::GUIhelper::drawText
+void drawText(float x, float y, char const *txt, ImU32 col=IM_COL32(128, 255, 128, 255))
+Draw text over an image.
+Definition
+GUIhelper.C:634
+jevois::GUIhelper::drawRect
+void drawRect(float x1, float y1, float x2, float y2, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw rectangular box over an image.
+Definition
+GUIhelper.C:488
+jevois::GUIhelper::drawLine
+void drawLine(float x1, float y1, float x2, float y2, ImU32 col=IM_COL32(128, 255, 128, 255))
+Draw line over an image.
+Definition
+GUIhelper.C:482
+jevois::Manager::getComponent
+std::shared_ptr< Comp > getComponent(std::string const &instanceName) const
+Get a top-level component by instance name.
+jevois::RawImage
+A raw image as coming from a V4L2 Camera and/or being sent out to a USB Gadget.
+Definition
+RawImage.H:111
+jevois::StdModule
+Base class for a module that supports standardized serial messages.
+Definition
+Module.H:234
+jevois::StdModule::sendSerialObjDetImg2D
+void sendSerialObjDetImg2D(unsigned int camw, unsigned int camh, float x, float y, float w, float h, std::vector< ObjReco > const &res)
+Send a standardized object detection + recognition message.
+Definition
+Module.C:572
+jevois::dnn::NetworkHailo
+Wrapper around an DNN neural network running on the Hailo8 neural accelerator.
+Definition
+NetworkHailo.H:37
+jevois::dnn::NetworkHailo::outputInfos
+std::vector< hailo_vstream_info_t > outputInfos() const
+Hailo-only get input stream infos, can be used to post-process quantized outputs.
+Definition
+NetworkHailo.C:73
+jevois::dnn::PostProcessorPose::process
+void process(std::vector< cv::Mat > const &outs, PreProcessor *preproc) override
+Process outputs and draw/send some results.
+Definition
+PostProcessorPose.C:60
+jevois::dnn::PostProcessorPose::onParamChange
+void onParamChange(postprocessor::classes const &param, std::string const &val) override
+Definition
+PostProcessorPose.C:47
+jevois::dnn::PostProcessorPose::latestSkeletons
+std::vector< PoseSkeleton > const & latestSkeletons() const
+Get the latest skeletons, use with caution, not thread-safe.
+Definition
+PostProcessorPose.C:559
+jevois::dnn::PostProcessorPose::latestDetections
+std::vector< ObjDetect > const & latestDetections() const
+Get the latest detections, use with caution, not thread-safe.
+Definition
+PostProcessorPose.C:555
+jevois::dnn::PostProcessorPose::freeze
+void freeze(bool doit) override
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+PostProcessorPose.C:39
+jevois::dnn::PostProcessorPose::report
+void report(jevois::StdModule *mod, jevois::RawImage *outimg=nullptr, jevois::OptGUIhelper *helper=nullptr, bool overlay=true, bool idle=false) override
+Report what happened in last process() to console/output video/GUI.
+Definition
+PostProcessorPose.C:472
+jevois::dnn::PostProcessorPose::~PostProcessorPose
+virtual ~PostProcessorPose()
+Destructor.
+Definition
+PostProcessorPose.C:35
+jevois::dnn::PreProcessor
+Pre-Processor for neural network pipeline.
+Definition
+PreProcessor.H:110
+jevois::dnn::PreProcessor::imagesize
+cv::Size const & imagesize() const
+Access the last processed image size.
+Definition
+PreProcessor.C:39
+jevois::dnn::PreProcessor::b2i
+void b2i(float &x, float &y, size_t blobnum=0)
+Convert coordinates from blob back to original image.
+Definition
+PreProcessor.C:50
+jevois::dnn::PreProcessor::blobsize
+cv::Size blobsize(size_t num) const
+Access the width and height of a given blob, accounting for NCHW or NHWC.
+Definition
+PreProcessor.C:43
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+jevois::dnn::getClassLabels
+std::map< int, std::string > getClassLabels(std::string const &arg)
+Get class labels from either a list or a file.
+Definition
+Utils.C:25
+jevois::dnn::getLabel
+std::string getLabel(std::map< int, std::string > const &labels, int id, bool namedonly=false)
+Get a label from an id.
+Definition
+Utils.C:85
+jevois::dnn::sigmoid
+float sigmoid(float x)
+Compute sigmoid using fastexp.
+jevois::dnn::clamp
+void clamp(cv::Rect &r, int width, int height)
+Clamp a rectangle to within given image width and height.
+Definition
+Utils.C:408
+jevois::dnn::softmax_dfl
+float softmax_dfl(float const *src, float *dst, size_t const n, size_t const stride=1)
+Compute softmax and return DFL distance.
+Definition
+Utils.C:769
+jevois::dnn::stringToRGBA
+int stringToRGBA(std::string const &label, unsigned char alpha=128)
+Compute a color from a label name.
+Definition
+Utils.C:97
+jevois::dnn::shapestr
+std::string shapestr(cv::Mat const &m)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional cv::Mat with data type TYPE.
+Definition
+Utils.C:126
+jevois::rawimage::writeText
+void writeText(RawImage &img, std::string const &txt, int x, int y, unsigned int col, Font font=Font6x10)
+Write some text in an image.
+Definition
+RawImageOps.C:690
+jevois::rawimage::drawLine
+void drawLine(RawImage &img, int x1, int y1, int x2, int y2, unsigned int thick, unsigned int col)
+Draw a line in a YUYV image.
+Definition
+RawImageOps.C:564
+jevois::rawimage::drawRect
+void drawRect(RawImage &img, int x, int y, unsigned int w, unsigned int h, unsigned int thick, unsigned int col)
+Draw a rectangle in a YUYV image.
+Definition
+RawImageOps.C:607
+jevois::rawimage::drawCircle
+void drawCircle(RawImage &img, int x, int y, unsigned int rad, unsigned int thick, unsigned int col)
+Draw a circle in a YUYV image.
+Definition
+RawImageOps.C:483
+jevois::rawimage::Font10x20
+@ Font10x20
+Definition
+RawImageOps.H:160
+jevois::sformat
+std::string sformat(char const *fmt,...) __attribute__((format(__printf__
+Create a string using printf style arguments.
+Definition
+Utils.C:440
+jevois::split
+std::vector< std::string > split(std::string const &input, std::string const &regex="\\s+")
+Split string into vector of tokens using a regex to specify what to split on; default regex splits by...
+Definition
+Utils.C:270
+jevois::yuyv::LightGreen
+unsigned short constexpr LightGreen
+YUYV color value.
+Definition
+RawImage.H:63
+jevois::ObjDetect
+A trivial struct to store object detection results, for standard (straight up) bounding boxes.
+Definition
+ObjDetect.H:29
+jevois::ObjReco
+A trivial struct to store object recognition results.
+Definition
+ObjReco.H:25
+jevois::PoseSkeletonDefinition
+An enum for different kinds of skeletons.
+Definition
+PoseSkeleton.H:32
+jevois::PoseSkeleton::Link
+A pose skeleton link between two nodes.
+Definition
+PoseSkeleton.H:60
+jevois::PoseSkeleton::Node
+A pose skeleton node.
+Definition
+PoseSkeleton.H:49
+jevois::PoseSkeleton
+A simple skeleton class for pose detection deep neural networks.
+Definition
+PoseSkeleton.H:46
+jevois::PoseSkeleton::nodes
+std::vector< Node > nodes
+The nodes we found in this detection.
+Definition
+PoseSkeleton.H:67
+jevois::PoseSkeleton::links
+std::vector< Link > links
+The links we found in this detection.
+Definition
+PoseSkeleton.H:68
+jevois::PoseSkeleton::linkDefinitions
+std::vector< std::pair< unsigned int, unsigned int > > const & linkDefinitions() const
+Get a const ref to our link definitions, useful to iterate over. Each link is <node_id_1,...
+Definition
+PoseSkeleton.C:161
+filter_keypoints
+std::pair< std::vector< KeyPt >, std::vector< PairPairs > > filter_keypoints(std::vector< Decodings > filtered_decodings, std::vector< int > network_dims, float joint_threshold)
+Definition
+yolov8pose_postprocess.C:37
+yolov8pose_postprocess
+std::vector< Decodings > yolov8pose_postprocess(std::vector< HailoTensorPtr > &tensors, std::vector< int > network_dims, std::vector< int > strides, int regression_length, int num_classes, float score_threshold, float iou_threshold)
+Definition
+yolov8pose_postprocess.C:323
+src
+jevois
+DNN
+PostProcessorPose.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/PostProcessor_8H_source.html
+TITRE: JeVois: include/jevois/DNN/PostProcessor.H Source File
+================================================================================
+
+JeVois: include/jevois/DNN/PostProcessor.H Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+PostProcessor.H
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#pragma once
+19
+20
+#include <
+jevois/Component/Component.H
+21
+#include <opencv2/core/core.hpp>
+22
+#include <
+jevois/GPU/GUIhelper.H
+23
+#include <
+jevois/Types/Enum.H
+24
+#include <
+jevois/Types/PoseSkeleton.H
+25
+26
+namespace
+jevois
+27
+28
+class
+StdModule;
+29
+class
+RawImage;
+30
+31
+namespace
+dnn
+32
+33
+class
+PreProcessor;
+34
+35
+namespace
+postprocessor
+36
+37
+// We define all parameters for all derived classes here to avoid duplicate definitions. Different derived classes
+38
+// will use different subsets of all available parameters:
+39
+static
+jevois::ParameterCategory
+const
+ParamCateg(
+"DNN Post-Processing Options"
+);
+40
+41
+//! Parameter \relates jevois::dnn::PostProcessorClassify
+42
+JEVOIS_DECLARE_PARAMETER
+(classoffset,
+int
+"Offset added to model output when looking up class name. Useful if "
+43
+"your model uses a background class but your class file does not (use -1), or if your "
+44
+"model does not use a background class but your class file has one (use 1). If unsure, "
+45
+"use 0 and check whether reported class names are off."
+46
+0, ParamCateg);
+47
+48
+//! Parameter \relates jevois::dnn::PostProcessorClassify
+49
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(classes, std::string,
+"Path to text file with names of object classes, or "
+50
+"comma-separated list of class names. If path is relative, that is to "
+51
+JEVOIS_SHARE_PATH
+52
+""
+, ParamCateg);
+53
+54
+//! Parameter \relates jevois::dnn::PostProcessorClassify
+55
+JEVOIS_DECLARE_PARAMETER
+(top,
+unsigned
+int
+"Max number of top-scoring predictions that score above "
+56
+"threshold to report"
+57
+5, ParamCateg);
+58
+59
+//! Parameter \relates jevois::dnn::PostProcessorDetect
+60
+JEVOIS_DECLARE_PARAMETER
+(maxnbox,
+unsigned
+int
+"Max number of top-scoring boxes to report (for YOLO flavors, "
+61
+"this is the max for each scale), or 0 for no limit"
+62
+500, ParamCateg);
+63
+64
+//! Parameter \relates jevois::dnn::PostProcessorDetect
+65
+JEVOIS_DECLARE_PARAMETER
+(namedonly,
+bool
+"When true, only report (on display and to serial ports) results "
+66
+"for which we have a class name defined in the class file. This can allow one "
+67
+"to skip some of the results by simply commenting out their name in the class file "
+68
+"(make sure your class file then contains class-ID numbers for each named class)."
+69
+false
+, ParamCateg);
+70
+71
+//! Parameter \relates jevois::dnn::PostProcessorClassify
+72
+JEVOIS_DECLARE_PARAMETER
+(cthresh,
+float
+"Classification threshold (in percent confidence) above which "
+73
+"predictions will be reported"
+74
+20.0F,
+jevois::Range<float>
+(0.0F, 100.0F), ParamCateg);
+75
+76
+//! Parameter \relates jevois::dnn::PostProcessorDetect
+77
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(perclassthresh, std::string,
+"Per-class thresholds (in percent "
+78
+"confidence) above which predictions will be reported, one value for "
+79
+"each class, separated by spaces and/or commas. This is used to override "
+80
+"'cthresh' when different thresholds are needed for different classes, "
+81
+"e.g., for YOLO-World. Only supported by YOLOv8 and YOLOv8t "
+82
+"post-processors. All values must be strictly >0"
+83
+""
+, ParamCateg);
+84
+85
+//! Parameter \relates jevois::dnn::PostProcessorDetect
+86
+JEVOIS_DECLARE_PARAMETER
+(dthresh,
+float
+"Detection box threshold (in percent confidence) above which "
+87
+"predictions will be reported. Not all networks use a separate box threshold, "
+88
+"many only use one threshold confidence threshold (cthresh parameter). The YOLO "
+89
+"family is an example that uses both box and classification confidences"
+90
+15.0F,
+jevois::Range<float>
+(0.0F, 100.0F), ParamCateg);
+91
+92
+//! Parameter \relates jevois::dnn::PostProcessorPose
+93
+JEVOIS_DECLARE_PARAMETER
+(jthresh,
+float
+"Joint confidence threshold for pose detection"
+94
+50.0F,
+jevois::Range<float>
+(0.0F, 100.0F), ParamCateg);
+95
+96
+//! Parameter \relates jevois::dnn::PostProcessorClassify
+97
+JEVOIS_DECLARE_PARAMETER
+softmax
+bool
+"Apply a softmax to classification outputs"
+98
+false
+, ParamCateg);
+99
+100
+//! Parameter \relates jevois::dnn::PostProcessorClassify
+101
+JEVOIS_DECLARE_PARAMETER
+(scorescale,
+float
+"Scaling factors applied to recognition scores. Mainly "
+102
+"for debugging if your scores seem too high or too low. If too high, usually "
+103
+"that means that you should turn on parameter softmax instead."
+104
+1.0F, ParamCateg);
+105
+106
+//! Enum \relates jevois::dnn::PostProcessorDetect
+107
+JEVOIS_DEFINE_ENUM_CLASS
+(DetectType, (FasterRCNN) (YOLO) (SSD) (TPUSSD) (RAWYOLO) (YOLOv10) (YOLOv10pp)
+108
+(YOLOX) (YOLOv8) (YOLOv8t) (YOLOv8seg) (YOLOv8segt) (
+YOLOjevois
+) (YOLOjevoist) );
+109
+110
+//! Parameter \relates jevois::dnn::PostProcessorDetect
+111
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(detecttype, DetectType,
+"Type of detection output format"
+112
+DetectType::YOLO, DetectType_Values, ParamCateg);
+113
+114
+//! Parameter \relates jevois::dnn::PostProcessorDetect
+115
+JEVOIS_DECLARE_PARAMETER
+nms
+float
+"Non-maximum suppression intersection-over-union threshold in percent"
+116
+45.0F,
+jevois::Range<float>
+(0.0F, 100.0F), ParamCateg);
+117
+118
+//! Parameter \relates jevois::dnn::PostProcessorDetect
+119
+JEVOIS_DECLARE_PARAMETER
+(nmsperclass,
+bool
+"When true, apply non-maximum suppression (NMS) separately for each "
+120
+"object class, rather than globally. This will allow overlapping boxes as long as "
+121
+"they belong to different classes"
+122
+false
+, ParamCateg);
+123
+124
+//! Parameter \relates jevois::dnn::PostProcessorDetect
+125
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(anchors, std::string,
+"For YOLO-type detection models with raw outputs, "
+126
+"list of anchors. Should be formatted as: w1, h1, w2, h2, ... ; ww1, hh1, ww2, hh2, "
+127
+"... ; ... where individual entries for a given YOLO layer are separated by commas, "
+128
+"and successive YOLO layers (from large to small, e.g., first the anchors for 52x52, "
+129
+"then for 26x26, then for 13x13) are separated by semicolons. Leave empty "
+130
+"for other models."
+131
+""
+, ParamCateg);
+132
+133
+//! Parameter \relates jevois::dnn::PostProcessorDetect
+134
+JEVOIS_DECLARE_PARAMETER
+(masksmooth,
+bool
+"When true, extract smoother instance segmentation masks, "
+135
+"which may be marginally slower."
+136
+true
+, ParamCateg);
+137
+138
+//! Parameter \relates jevois::dnn::PostProcessorDetect
+139
+JEVOIS_DECLARE_PARAMETER
+(alpha,
+unsigned
+char
+"Alpha channel value for drawn results"
+140
+64, ParamCateg);
+141
+142
+//! Enum \relates jevois::dnn::PostProcessorDetectOBB
+143
+JEVOIS_DEFINE_ENUM_CLASS
+(DetectTypeOBB, (YOLOv8) (YOLOv8t) );
+144
+145
+//! Parameter \relates jevois::dnn::PostProcessorDetectOBB
+146
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(detecttypeobb, DetectTypeOBB,
+"Type of oriented bounding box detection "
+147
+"output format"
+148
+DetectTypeOBB::YOLOv8, DetectTypeOBB_Values, ParamCateg);
+149
+150
+//! Parameter \relates jevois::dnn::PostProcessorClassify
+151
+JEVOIS_DECLARE_PARAMETER
+(boxclamp,
+bool
+"Clamp detection boxes to fit within the input image. Good to avoid "
+152
+"having boxes that extend beyond the display and to be able to see object labels "
+153
+"even on boxes that start at negative coordinates; but will artificially reduce "
+154
+"the size of detections that extend beyond the display"
+155
+true
+, ParamCateg);
+156
+157
+//! Parameter \relates jevois::dnn::PostProcessorSegment
+158
+JEVOIS_DECLARE_PARAMETER
+(bgid,
+unsigned
+char
+"Class ID for the background, will show as fully transparent in "
+159
+"semantic segmentation overlays"
+160
+0, ParamCateg);
+161
+162
+//! Enum \relates jevois::dnn::PostProcessorSegment
+163
+JEVOIS_DEFINE_ENUM_CLASS
+(SegType, (ClassesHWC) (ClassesCHW) (ArgMax) );
+164
+165
+//! Parameter \relates jevois::dnn::PostProcessorSegment
+166
+JEVOIS_DECLARE_PARAMETER
+(segtype, SegType,
+"Type of segmentation network output. ClassesHWC: output is 1xHxWxC "
+167
+"for C classes and we get one score per class; we will show "
+168
+"the top scoring class for each pixel (e.g., UNet-MobileNet on TPU). ClassesCHW: "
+169
+"output is 1xCxHxW and the rest is as for ClassesHWC (e.g., DeepLabV3 OpenCV). ArgMax: "
+170
+"output is HxW, 1xHxW, or 1xHxWx1 and contains the class ID for each pixel "
+171
+"(e.g., DeepLabV3 on TPU)."
+172
+SegType::ClassesHWC, SegType_Values, ParamCateg);
+173
+174
+//! Parameter \relates jevois::dnn::PostProcessorPython
+175
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(pypost, std::string,
+"Path below "
+JEVOIS_SHARE_PATH
+"/ of the python "
+176
+"post-processor file. Name of class defined in the file must match "
+177
+"the file name without the trailing '.py'"
+178
+""
+, ParamCateg);
+179
+180
+//! Parameter \relates jevois::dnn::PostProcessorDetectYOLO
+181
+JEVOIS_DECLARE_PARAMETER
+(scalexy,
+float
+"If 0, use old-style YOLO boxes (YOLOv2/v3/v4); otherwise, this is "
+182
+"the scale_xy factor for new-style YOLO coordinates (YOLOv5/v7; value is usually 2.0 "
+183
+"but check the yolo layer in the model's .cfg file)"
+184
+0.0F, ParamCateg);
+185
+186
+//! Parameter \relates jevois::dnn::PostProcessorDetect
+187
+JEVOIS_DECLARE_PARAMETER
+sigmoid
+bool
+"Apply sigmoid to raw YOLO outputs, use when the last conv layers "
+188
+"just before yolo/detection/region layers have linear activation (most "
+189
+"YOLOv2/v3/v4 models, but not YOLOv5/v7 which have logistic activation on their "
+190
+"last conv)"
+191
+true
+, ParamCateg);
+192
+193
+//! Enum \relates jevois::dnn::PostProcessorPose
+194
+JEVOIS_DEFINE_ENUM_CLASS
+(PoseType, (YOLOv8HAILO) (YOLOv8) (YOLOv8t) );
+195
+196
+//! Parameter \relates jevois::dnn::PostProcessorPose
+197
+JEVOIS_DECLARE_PARAMETER
+(posetype, PoseType,
+"Type of pose output format"
+198
+PoseType::YOLOv8HAILO, PoseType_Values, ParamCateg);
+199
+200
+//! Parameter \relates jevois::dnn::PostProcessorPose
+201
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(skeleton, std::string,
+"YAML file name for definition of pose skeleton. "
+202
+"Defines number of joints and links, their names, and their "
+203
+"colors for drawing. If file name is relative, it will be with respect "
+204
+"to "
+JEVOIS_SHARE_PATH
+205
+"dnn/skeletons/Coco17.yml"
+, ParamCateg);
+206
+207
+//! Parameter \relates jevois::dnn::PostProcessorClassify
+208
+JEVOIS_DECLARE_PARAMETER
+(serialreport,
+bool
+"Send classification or detection results to serial port"
+209
+true
+, ParamCateg);
+210
+211
+212
+//! Post-Processor for neural network pipeline
+213
+/*! This is the last step in a deep neural network processing Pipeline. \ingroup dnn */
+214
+class
+PostProcessor
+public
+jevois::Component
+215
+216
+public
+217
+218
+//! Inherited constructor ok
+219
+using
+jevois::Component::Component
+220
+221
+//! Destructor
+222
+virtual
+~PostProcessor
+();
+223
+224
+//! Freeze/unfreeze parameters that users should not change while running
+225
+virtual
+void
+freeze
+bool
+doit) = 0;
+226
+227
+//! Process outputs
+228
+virtual
+void
+process
+(std::vector<cv::Mat>
+const
+& outs,
+PreProcessor
+* preproc) = 0;
+229
+230
+//! Report what happened in last process() to console/output video/GUI
+231
+virtual
+void
+report
+jevois::StdModule
+* mod,
+jevois::RawImage
+* outimg =
+nullptr
+232
+jevois::OptGUIhelper
+* helper =
+nullptr
+bool
+overlay =
+true
+bool
+idle =
+false
+) = 0;
+233
+};
+234
+235
+// namespace dnn
+236
+// namespace jevois
+Component.H
+JEVOIS_SHARE_PATH
+#define JEVOIS_SHARE_PATH
+Base path for shared files (e.g., neural network weights, etc)
+Definition
+Config.H:82
+Enum.H
+GUIhelper.H
+PoseSkeleton.H
+jevois::Component
+A component of a model hierarchy.
+Definition
+Component.H:182
+jevois::GUIhelper
+Helper class to assist modules in creating graphical and GUI elements.
+Definition
+GUIhelper.H:133
+jevois::ParameterRegistry::Component
+friend class Component
+Allow Component and DynamicParameter to access our registry data, everyone else is locked out.
+Definition
+ParameterRegistry.H:51
+jevois::Range
+A generic range class.
+Definition
+Range.H:81
+jevois::RawImage
+A raw image as coming from a V4L2 Camera and/or being sent out to a USB Gadget.
+Definition
+RawImage.H:111
+jevois::StdModule
+Base class for a module that supports standardized serial messages.
+Definition
+Module.H:234
+jevois::dnn::PostProcessorClassify::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(classoffset, int, "Offset added to model output when looking up class name. Useful if " "your model uses a background class but your class file does not (use -1), or if your " "model does not use a background class but your class file has one (use 1). If unsure, " "use 0 and check whether reported class names are off.", 0, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorClassify::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(serialreport, bool, "Send classification or detection results to serial port", true, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorClassify::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(softmax, bool, "Apply a softmax to classification outputs", false, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorClassify::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(scorescale, float, "Scaling factors applied to recognition scores. Mainly " "for debugging if your scores seem too high or too low. If too high, usually " "that means that you should turn on parameter softmax instead.", 1.0F, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorClassify::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(boxclamp, bool, "Clamp detection boxes to fit within the input image. Good to avoid " "having boxes that extend beyond the display and to be able to see object labels " "even on boxes that start at negative coordinates but will artificially reduce " "the size of detections that extend beyond the display", true, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorClassify::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(classes, std::string, "Path to text file with names of object classes, or " "comma-separated list of class names. If path is relative, that is to " JEVOIS_SHARE_PATH, "", ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorClassify::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(cthresh, float, "Classification threshold (in percent confidence) above which " "predictions will be reported", 20.0F, jevois::Range< float >(0.0F, 100.0F), ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorClassify::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(top, unsigned int, "Max number of top-scoring predictions that score above " "threshold to report", 5, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetectOBB::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(DetectTypeOBB,(YOLOv8)(YOLOv8t))
+Enum.
+jevois::dnn::PostProcessorDetectOBB::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(detecttypeobb, DetectTypeOBB, "Type of oriented bounding box detection " "output format", DetectTypeOBB::YOLOv8, DetectTypeOBB_Values, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetectYOLO::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(scalexy, float, "If 0, use old-style YOLO boxes (YOLOv2/v3/v4) otherwise, this is " "the scale_xy factor for new-style YOLO coordinates (YOLOv5/v7 value is usually 2.0 " "but check the yolo layer in the model's .cfg file)", 0.0F, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetect::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(maxnbox, unsigned int, "Max number of top-scoring boxes to report (for YOLO flavors, " "this is the max for each scale), or 0 for no limit", 500, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetect::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(nmsperclass, bool, "When true, apply non-maximum suppression (NMS) separately for each " "object class, rather than globally. This will allow overlapping boxes as long as " "they belong to different classes", false, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetect::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(dthresh, float, "Detection box threshold (in percent confidence) above which " "predictions will be reported. Not all networks use a separate box threshold, " "many only use one threshold confidence threshold (cthresh parameter). The YOLO " "family is an example that uses both box and classification confidences", 15.0F, jevois::Range< float >(0.0F, 100.0F), ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetect::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(perclassthresh, std::string, "Per-class thresholds (in percent " "confidence) above which predictions will be reported, one value for " "each class, separated by spaces and/or commas. This is used to override " "'cthresh' when different thresholds are needed for different classes, " "e.g., for YOLO-World. Only supported by YOLOv8 and YOLOv8t " "post-processors. All values must be strictly >0", "", ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetect::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(DetectType,(FasterRCNN)(YOLO)(SSD)(TPUSSD)(RAWYOLO)(YOLOv10)(YOLOv10pp)(YOLOX)(YOLOv8)(YOLOv8t)(YOLOv8seg)(YOLOv8segt)(YOLOjevois)(YOLOjevoist))
+Enum.
+jevois::dnn::PostProcessorDetect::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(sigmoid, bool, "Apply sigmoid to raw YOLO outputs, use when the last conv layers " "just before yolo/detection/region layers have linear activation (most " "YOLOv2/v3/v4 models, but not YOLOv5/v7 which have logistic activation on their " "last conv)", true, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetect::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(alpha, unsigned char, "Alpha channel value for drawn results", 64, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetect::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(masksmooth, bool, "When true, extract smoother instance segmentation masks, " "which may be marginally slower.", true, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetect::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(anchors, std::string, "For YOLO-type detection models with raw outputs, " "list of anchors. Should be formatted as: w1, h1, w2, h2, ...  ww1, hh1, ww2, hh2, " "...  ... where individual entries for a given YOLO layer are separated by commas, " "and successive YOLO layers (from large to small, e.g., first the anchors for 52x52, " "then for 26x26, then for 13x13) are separated by semicolons. Leave empty " "for other models.", "", ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetect::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(detecttype, DetectType, "Type of detection output format", DetectType::YOLO, DetectType_Values, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetect::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(namedonly, bool, "When true, only report (on display and to serial ports) results " "for which we have a class name defined in the class file. This can allow one " "to skip some of the results by simply commenting out their name in the class file " "(make sure your class file then contains class-ID numbers for each named class).", false, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorDetect::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(nms, float, "Non-maximum suppression intersection-over-union threshold in percent", 45.0F, jevois::Range< float >(0.0F, 100.0F), ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorPose::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(skeleton, std::string, "YAML file name for definition of pose skeleton. " "Defines number of joints and links, their names, and their " "colors for drawing. If file name is relative, it will be with respect " "to " JEVOIS_SHARE_PATH, "dnn/skeletons/Coco17.yml", ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorPose::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(PoseType,(YOLOv8HAILO)(YOLOv8)(YOLOv8t))
+Enum.
+jevois::dnn::PostProcessorPose::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(posetype, PoseType, "Type of pose output format", PoseType::YOLOv8HAILO, PoseType_Values, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorPose::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(jthresh, float, "Joint confidence threshold for pose detection", 50.0F, jevois::Range< float >(0.0F, 100.0F), ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorPython::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(pypost, std::string, "Path below " JEVOIS_SHARE_PATH "/ of the python " "post-processor file. Name of class defined in the file must match " "the file name without the trailing '.py'", "", ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorSegment::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(bgid, unsigned char, "Class ID for the background, will show as fully transparent in " "semantic segmentation overlays", 0, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorSegment::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(segtype, SegType, "Type of segmentation network output. ClassesHWC: output is 1xHxWxC " "for C classes and we get one score per class we will show " "the top scoring class for each pixel (e.g., UNet-MobileNet on TPU). ClassesCHW: " "output is 1xCxHxW and the rest is as for ClassesHWC (e.g., DeepLabV3 OpenCV). ArgMax: " "output is HxW, 1xHxW, or 1xHxWx1 and contains the class ID for each pixel " "(e.g., DeepLabV3 on TPU).", SegType::ClassesHWC, SegType_Values, ParamCateg)
+Parameter.
+jevois::dnn::PostProcessorSegment::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(SegType,(ClassesHWC)(ClassesCHW)(ArgMax))
+Enum.
+jevois::dnn::PostProcessor
+Post-Processor for neural network pipeline.
+Definition
+PostProcessor.H:215
+jevois::dnn::PostProcessor::process
+virtual void process(std::vector< cv::Mat > const &outs, PreProcessor *preproc)=0
+Process outputs.
+jevois::dnn::PostProcessor::freeze
+virtual void freeze(bool doit)=0
+Freeze/unfreeze parameters that users should not change while running.
+jevois::dnn::PostProcessor::~PostProcessor
+virtual ~PostProcessor()
+Destructor.
+Definition
+PostProcessor.C:21
+jevois::dnn::PostProcessor::report
+virtual void report(jevois::StdModule *mod, jevois::RawImage *outimg=nullptr, jevois::OptGUIhelper *helper=nullptr, bool overlay=true, bool idle=false)=0
+Report what happened in last process() to console/output video/GUI.
+jevois::dnn::PreProcessor
+Pre-Processor for neural network pipeline.
+Definition
+PreProcessor.H:110
+jevois::dnn::YOLOjevois
+Helper class for runtime-configurable, quantized open-vocabulary object detection.
+Definition
+YOLOjevois.H:61
+jevois::dnn::softmax
+size_t softmax(float const *input, size_t const n, size_t const stride, float const fac, float *output, bool maxonly)
+Apply softmax to a float vector.
+Definition
+Utils.C:733
+jevois::dnn::sigmoid
+float sigmoid(float x)
+Compute sigmoid using fastexp.
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+jevois::ParameterCategory
+A category to which multiple ParameterDef definitions can belong.
+Definition
+ParameterDef.H:34
+nms
+std::vector< Decodings > nms(std::vector< Decodings > &decodings, const float iou_thr, bool should_nms_cross_classes=false)
+Definition
+yolov8pose_postprocess.C:87
+include
+jevois
+DNN
+PostProcessor.H
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+

@@ -1,0 +1,2903 @@
+DOCUMENTATION JEVOIS - PARTIE 8
+Catégorie principale: PYTHON
+Nombre de documents: 1
+================================================================================
+
+
+================================================================================
+URL: http://jevois.org/doc/PythonSupport_8C_source.html
+TITRE: JeVois: src/jevois/Core/PythonSupport.C Source File
+================================================================================
+
+JeVois: src/jevois/Core/PythonSupport.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+PythonSupport.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2016 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#include <boost/python.hpp>
+19
+20
+#include <
+jevois/Core/PythonSupport.H
+21
+#include <
+jevois/Core/Engine.H
+22
+#include <
+jevois/Image/RawImage.H
+23
+#include <
+jevois/Image/RawImageOps.H
+24
+#include <
+jevois/Core/PythonModule.H
+25
+#include <
+jevois/Core/PythonParameter.H
+26
+#include <
+jevois/Core/UserInterface.H
+27
+#include <
+jevois/Core/StdioInterface.H
+28
+#include <
+jevois/Core/Serial.H
+29
+#include <
+jevois/Util/Utils.H
+30
+#include <
+jevois/Util/Coordinates.H
+31
+#include <
+jevois/Debug/Log.H
+32
+#include <
+jevois/Debug/Timer.H
+33
+#include <
+jevois/Debug/Profiler.H
+34
+#include <
+jevois/Debug/SysInfo.H
+35
+#include <
+jevois/Core/Camera.H
+36
+#include <
+jevois/Core/IMU.H
+37
+#include <
+jevois/Component/ParameterStringConversion.H
+38
+#include <
+jevois/DNN/PreProcessorPython.H
+39
+#include <
+jevois/DNN/Utils.H
+40
+#include <
+jevois/GPU/ChatBox.H
+41
+42
+#define PY_ARRAY_UNIQUE_SYMBOL pbcvt_ARRAY_API
+43
+#include <
+jevois/Core/PythonOpenCV.H
+44
+45
+// ####################################################################################################
+46
+// Convenience macro to define a Python binding for a free function in the jevois namespace
+47
+#define JEVOIS_PYTHON_FUNC(funcname) boost::python::def(#funcname, jevois::funcname)
+48
+49
+// Convenience macro to define a Python binding for a free function in the jevois::rawimage namespace
+50
+#define JEVOIS_PYTHON_RAWIMAGE_FUNC(funcname) boost::python::def(#funcname, jevois::rawimage::funcname)
+51
+52
+// Convenience macro to define a python enum value where the value is in jevois::rawimage
+53
+#define JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(val) value(#val, jevois::rawimage::val)
+54
+55
+// Convenience macro to define a python enum value where the value is in jevois::python
+56
+#define JEVOIS_PYTHON_ENUM_VAL(val) value(#val, jevois::python::val)
+57
+58
+// Convenience macro to define a constant that exists in the global C++ namespace
+59
+#define JEVOIS_PYTHON_CONSTANT(cst) boost::python::scope().attr(#cst) = cst;
+60
+61
+// Convenience macro to define a Python binding for a free function in the jevois:dnn namespace
+62
+#define JEVOIS_PYTHON_DNN_FUNC(funcname) boost::python::def(#funcname, jevois::dnn::funcname)
+63
+64
+// ####################################################################################################
+65
+// Helper to provide jevois.sendSerial() function that emulates a C++ module's sendSerial()
+66
+namespace
+jevois
+67
+68
+namespace
+python
+69
+70
+Engine
+engineForPythonModule
+nullptr
+71
+72
+73
+74
+namespace
+75
+76
+void
+* init_numpy()
+77
+78
+// Initialize Python:
+79
+#if JEVOIS_PYTHON_MAJOR == 3 && JEVOIS_PYTHON_MINOR >= 10
+80
+PyConfig config; PyConfig_InitPythonConfig(&config);
+81
+82
+PyStatus status = PyConfig_SetString(&config, &config.program_name, Py_DecodeLocale(
+""
+nullptr
+));
+83
+if
+(PyStatus_Exception(status)) { PyConfig_Clear(&config);
+LFATAL
+"Could not initialize Python"
+); }
+84
+85
+status = Py_InitializeFromConfig(&config);
+86
+if
+(PyStatus_Exception(status)) { PyConfig_Clear(&config);
+LFATAL
+"Could not initialize Python"
+); }
+87
+#else
+88
+Py_SetProgramName(Py_DecodeLocale(
+""
+nullptr
+));
+// black magic
+89
+Py_Initialize();
+90
+#endif
+91
+92
+// Initialize numpy array. Use the signal handler hack to prevent numpy from grabbing CTRL-C from
+93
+// https://stackoverflow.com/questions/28750774/
+94
+//         python-import-array-makes-it-impossible-to-kill-embedded-python-with-ctrl-c
+95
+//PyOS_sighandler_t sighandler = PyOS_getsig(SIGINT);
+96
+import_array();
+97
+//PyOS_setsig(SIGINT,sighandler);
+98
+return
+nullptr
+// was NUMPY_IMPORT_ARRAY_RETVAL in older numpy
+99
+100
+101
+102
+void
+jevois::python::setEngine
+jevois::Engine
+* e)
+103
+104
+jevois::python::engineForPythonModule
+= e;
+105
+init_numpy();
+106
+107
+108
+jevois::Engine
+* jevois::python::engine()
+109
+110
+if
+jevois::python::engineForPythonModule
+==
+nullptr
+LFATAL
+"Internal error"
+);
+111
+return
+jevois::python::engineForPythonModule
+112
+113
+114
+// ####################################################################################################
+115
+// from https://stackoverflow.com/questions/39924912/finding-if-member-function-exists-in-a-boost-pythonobject
+116
+bool
+jevois::python::hasattr
+(boost::python::object &
+char
+const
+* name)
+117
+118
+return
+PyObject_HasAttrString(
+.ptr(), name);
+119
+120
+121
+// ####################################################################################################
+122
+// Thin wrappers to handle default arguments or overloads in free functions
+123
+124
+namespace
+125
+126
+void
+pythonSendSerial(std::string
+const
+& str)
+127
+{ jevois::python::engine()->sendSerial(str); }
+128
+129
+size_t
+pythonFrameNum()
+130
+return
+jevois::frameNum(); }
+131
+132
+boost::python::tuple pythonLoadCameraCalibration(std::string
+const
+& stem,
+bool
+throw_if_not_found)
+133
+134
+jevois::CameraCalibration
+c = jevois::python::engine()->loadCameraCalibration(stem, throw_if_not_found);
+135
+return
+boost::python::make_tuple(c.
+camMatrix
+, c.
+distCoeffs
+);
+136
+137
+138
+void
+pythonWriteCamRegister(
+unsigned
+short
+reg,
+unsigned
+short
+val)
+139
+140
+auto
+cam = jevois::python::engine()->camera();
+141
+if
+(!cam)
+LFATAL
+"Not using a Camera for video input"
+);
+142
+cam->writeRegister(reg, val);
+143
+144
+145
+unsigned
+short
+pythonReadCamRegister(
+unsigned
+short
+reg)
+146
+147
+auto
+cam = jevois::python::engine()->camera();
+148
+if
+(!cam)
+LFATAL
+"Not using a Camera for video input"
+);
+149
+return
+cam->readRegister(reg);
+150
+151
+152
+void
+pythonWriteIMUregister(
+unsigned
+short
+reg,
+unsigned
+short
+val)
+153
+154
+auto
+imu = jevois::python::engine()->imu();
+155
+if
+(!imu)
+LFATAL
+"No IMU driver loaded"
+);
+156
+imu->writeRegister(reg, val);
+157
+158
+159
+unsigned
+short
+pythonReadIMUregister(
+unsigned
+short
+reg)
+160
+161
+auto
+imu = jevois::python::engine()->imu();
+162
+if
+(!imu)
+LFATAL
+"No IMU driver loaded"
+);
+163
+return
+imu->readRegister(reg);
+164
+165
+166
+void
+pythonWriteDMPregister(
+unsigned
+short
+reg,
+unsigned
+short
+val)
+167
+168
+auto
+imu = jevois::python::engine()->imu();
+169
+if
+(!imu)
+LFATAL
+"No IMU driver loaded"
+);
+170
+imu->writeDMPregister(reg, val);
+171
+172
+173
+unsigned
+short
+pythonReadDMPregister(
+unsigned
+short
+reg)
+174
+175
+auto
+imu = jevois::python::engine()->imu();
+176
+if
+(!imu)
+LFATAL
+"No IMU driver loaded"
+);
+177
+return
+imu->readDMPregister(reg);
+178
+179
+180
+#ifdef JEVOIS_LDEBUG_ENABLE
+181
+void
+pythonLDEBUG(std::string
+const
+& logmsg) {
+LDEBUG
+(logmsg); }
+182
+#else
+183
+void
+pythonLDEBUG(std::string
+const
+&) { }
+184
+#endif
+185
+void
+pythonLINFO(std::string
+const
+& logmsg) {
+LINFO
+(logmsg); }
+186
+void
+pythonLERROR(std::string
+const
+& logmsg) {
+LERROR
+(logmsg); }
+187
+void
+pythonLFATAL(std::string
+const
+& logmsg) {
+LFATAL
+(logmsg); }
+188
+189
+190
+// ####################################################################################################
+191
+// Python parameter access support
+192
+std::string pythonGetParamStringUnique(boost::python::object & pyinst, std::string
+const
+& descriptor)
+193
+194
+jevois::Component
+* comp = jevois::python::engine()->getPythonComponent(pyinst.ptr()->ob_type);
+195
+return
+comp->
+getParamStringUnique
+(descriptor);
+196
+197
+198
+void
+pythonSetParamStringUnique(boost::python::object & pyinst, std::string
+const
+& descriptor,
+199
+std::string
+const
+& val)
+200
+201
+jevois::Component
+* comp = jevois::python::engine()->getPythonComponent(pyinst.ptr()->ob_type);
+202
+comp->
+setParamStringUnique
+(descriptor, val);
+203
+204
+205
+// anonymous namespace
+206
+207
+// ####################################################################################################
+208
+namespace
+jevois
+209
+210
+namespace
+python
+211
+212
+// Aux enum for YUYV colors - keep this in sync with RawImage.H:
+213
+enum
+YUYV
+Black
+= 0x8000,
+DarkGrey
+= 0x8050,
+MedGrey
+= 0x8080,
+LightGrey
+= 0x80a0,
+White
+= 0x80ff,
+214
+DarkGreen
+= 0x0000,
+MedGreen
+= 0x0040,
+LightGreen
+= 0x00ff,
+DarkTeal
+= 0x7070,
+MedTeal
+= 0x7090,
+215
+LightTeal
+= 0x70b0,
+DarkPurple
+= 0xa030,
+MedPurple
+= 0xa050,
+LightPurple
+= 0xa080,
+216
+DarkPink
+= 0xff00,
+MedPink
+= 0xff80,
+LightPink
+= 0xffff };
+217
+218
+219
+220
+// ####################################################################################################
+221
+#ifdef JEVOIS_PRO
+222
+BOOST_PYTHON_MODULE(libjevoispro)
+223
+#else
+224
+BOOST_PYTHON_MODULE(libjevois)
+225
+#endif
+226
+227
+// #################### Initialize converters for cv::Mat support:
+228
+boost::python::to_python_converter<cv::Mat, pbcvt::matToNDArrayBoostConverter>();
+229
+pbcvt::matFromNDArrayBoostConverter();
+230
+231
+// #################### Define a few constants for python users:
+232
+// jevois.pro is True if running on JeVois-Pro
+233
+#ifdef JEVOIS_PRO
+234
+boost::python::scope().attr(
+"pro"
+) =
+true
+235
+#else
+236
+boost::python::scope().attr(
+"pro"
+) =
+false
+237
+#endif
+238
+239
+// jevois.platform is True if running on platform hardware
+240
+#ifdef JEVOIS_PLATFORM
+241
+boost::python::scope().attr(
+"platform"
+) =
+true
+242
+#else
+243
+boost::python::scope().attr(
+"platform"
+) =
+false
+244
+#endif
+245
+246
+// Jevois software version:
+247
+boost::python::scope().attr(
+"version_major"
+) =
+JEVOIS_VERSION_MAJOR
+248
+boost::python::scope().attr(
+"version_minor"
+) =
+JEVOIS_VERSION_MINOR
+249
+boost::python::scope().attr(
+"version_patch"
+) =
+JEVOIS_VERSION_PATCH
+250
+251
+// Location of shared directories: jevois.share points to /jevois/share or /jevoispro/share
+252
+boost::python::scope().attr(
+"share"
+) =
+JEVOIS_SHARE_PATH
+253
+boost::python::scope().attr(
+"pydnn"
+) =
+JEVOIS_PYDNN_PATH
+254
+255
+// #################### module sendSerial() and other functions emulation:
+256
+boost::python::def(
+"sendSerial"
+, pythonSendSerial);
+257
+boost::python::def(
+"frameNum"
+, pythonFrameNum);
+258
+boost::python::def(
+"writeCamRegister"
+, pythonWriteCamRegister);
+259
+boost::python::def(
+"readCamRegister"
+, pythonReadCamRegister);
+260
+boost::python::def(
+"writeIMUregister"
+, pythonWriteIMUregister);
+261
+boost::python::def(
+"readIMUregister"
+, pythonReadIMUregister);
+262
+boost::python::def(
+"writeDMPregister"
+, pythonWriteDMPregister);
+263
+boost::python::def(
+"readDMPregister"
+, pythonReadDMPregister);
+264
+265
+// #################### Log.H
+266
+JEVOIS_PYTHON_CONSTANT
+(LOG_DEBUG);
+267
+JEVOIS_PYTHON_CONSTANT
+(LOG_INFO);
+268
+JEVOIS_PYTHON_CONSTANT
+(LOG_ERR);
+269
+JEVOIS_PYTHON_CONSTANT
+(LOG_CRIT);
+270
+271
+boost::python::def(
+"LDEBUG"
+, pythonLDEBUG);
+272
+boost::python::def(
+"LINFO"
+, pythonLINFO);
+273
+boost::python::def(
+"LERROR"
+, pythonLERROR);
+274
+boost::python::def(
+"LFATAL"
+, pythonLFATAL);
+275
+276
+// #################### Utils.H
+277
+JEVOIS_PYTHON_FUNC
+(fccstr);
+278
+JEVOIS_PYTHON_FUNC
+(cvtypestr);
+279
+JEVOIS_PYTHON_FUNC
+(cvBytesPerPix);
+280
+JEVOIS_PYTHON_FUNC
+(strfcc);
+281
+JEVOIS_PYTHON_FUNC
+(v4l2BytesPerPix);
+282
+JEVOIS_PYTHON_FUNC
+(v4l2ImageSize);
+283
+JEVOIS_PYTHON_FUNC
+(blackColor);
+284
+JEVOIS_PYTHON_FUNC
+(whiteColor);
+285
+JEVOIS_PYTHON_FUNC
+(flushcache);
+286
+JEVOIS_PYTHON_FUNC
+(system);
+287
+288
+// #################### Engine.H
+289
+boost::python::def(
+"loadCameraCalibration"
+, pythonLoadCameraCalibration);
+290
+291
+// #################### Coordinates.H
+292
+void (*
+imgToStd1
+)(
+float
+& x,
+float
+& y,
+jevois::RawImage
+const
+& camimg,
+float
+const
+eps) =
+jevois::coords::imgToStd
+293
+void (*
+imgToStd2
+)(
+float
+& x,
+float
+& y,
+unsigned
+int
+const
+width,
+unsigned
+int
+const
+height,
+float
+const
+eps) =
+294
+jevois::coords::imgToStd
+295
+boost::python::def(
+"imgToStd"
+imgToStd1
+);
+296
+boost::python::def(
+"imgToStd"
+imgToStd2
+);
+297
+298
+void (*
+stdToImg1
+)(
+float
+& x,
+float
+& y,
+jevois::RawImage
+const
+& camimg,
+float
+const
+eps) =
+jevois::coords::stdToImg
+299
+void (*
+stdToImg2
+)(
+float
+& x,
+float
+& y,
+unsigned
+int
+const
+width,
+unsigned
+int
+const
+height,
+float
+const
+eps) =
+300
+jevois::coords::stdToImg
+301
+boost::python::def(
+"stdToImg"
+stdToImg1
+);
+302
+boost::python::def(
+"stdToImg"
+stdToImg2
+);
+303
+304
+boost::python::def(
+"imgToStdX"
+jevois::coords::imgToStdX
+);
+305
+boost::python::def(
+"imgToStdY"
+jevois::coords::imgToStdY
+);
+306
+boost::python::def(
+"imgToStdSize"
+jevois::coords::imgToStdSize
+);
+307
+boost::python::def(
+"stdToImgSize"
+jevois::coords::stdToImgSize
+);
+308
+309
+// #################### RawImage.H
+310
+boost::python::class_<jevois::RawImage>(
+"RawImage"
+// default constructor is included
+311
+.def(
+"invalidate"
+, &
+jevois::RawImage::invalidate
+312
+.def(
+"valid"
+, &
+jevois::RawImage::valid
+313
+.def(
+"clear"
+, &
+jevois::RawImage::clear
+314
+.def(
+"require"
+, &
+jevois::RawImage::require
+315
+.def_readwrite(
+"width"
+, &
+jevois::RawImage::width
+316
+.def_readwrite(
+"height"
+, &
+jevois::RawImage::height
+317
+.def_readwrite(
+"fmt"
+, &
+jevois::RawImage::fmt
+318
+.def_readwrite(
+"fps"
+, &
+jevois::RawImage::fps
+319
+.def(
+"bytesperpix"
+, &
+jevois::RawImage::bytesperpix
+320
+.def(
+"bytesize"
+, &
+jevois::RawImage::bytesize
+321
+.def(
+"coordsOk"
+, &
+jevois::RawImage::coordsOk
+322
+//.def("pixels", &jevois::RawImage::pixelsw<unsigned char>,
+323
+//     boost::python::return_value_policy<boost::python::reference_existing_object>())
+324
+325
+326
+boost::python::enum_<jevois::python::YUYV>(
+"YUYV"
+327
+.JEVOIS_PYTHON_ENUM_VAL(Black)
+328
+.JEVOIS_PYTHON_ENUM_VAL(DarkGrey)
+329
+.JEVOIS_PYTHON_ENUM_VAL(MedGrey)
+330
+.JEVOIS_PYTHON_ENUM_VAL(LightGrey)
+331
+.JEVOIS_PYTHON_ENUM_VAL(White)
+332
+.JEVOIS_PYTHON_ENUM_VAL(DarkGreen)
+333
+.JEVOIS_PYTHON_ENUM_VAL(MedGreen)
+334
+.JEVOIS_PYTHON_ENUM_VAL(LightGreen)
+335
+.JEVOIS_PYTHON_ENUM_VAL(DarkTeal)
+336
+.JEVOIS_PYTHON_ENUM_VAL(MedTeal)
+337
+.JEVOIS_PYTHON_ENUM_VAL(LightTeal)
+338
+.JEVOIS_PYTHON_ENUM_VAL(DarkPurple)
+339
+.JEVOIS_PYTHON_ENUM_VAL(MedPurple)
+340
+.JEVOIS_PYTHON_ENUM_VAL(LightPurple)
+341
+.JEVOIS_PYTHON_ENUM_VAL(DarkPink)
+342
+.JEVOIS_PYTHON_ENUM_VAL(MedPink)
+343
+.JEVOIS_PYTHON_ENUM_VAL(LightPink)
+344
+345
+346
+JEVOIS_PYTHON_CONSTANT
+(V4L2_PIX_FMT_SRGGB8);
+347
+JEVOIS_PYTHON_CONSTANT
+(V4L2_PIX_FMT_YUYV);
+348
+JEVOIS_PYTHON_CONSTANT
+(V4L2_PIX_FMT_GREY);
+349
+JEVOIS_PYTHON_CONSTANT
+(V4L2_PIX_FMT_RGB565);
+350
+JEVOIS_PYTHON_CONSTANT
+(V4L2_PIX_FMT_MJPEG);
+351
+JEVOIS_PYTHON_CONSTANT
+(V4L2_PIX_FMT_BGR24);
+352
+353
+// #################### PythonModule.H
+354
+boost::python::class_<jevois::InputFramePython>(
+"InputFrame"
+355
+.def(
+"get"
+, &
+jevois::InputFramePython::get1
+356
+boost::python::return_value_policy<boost::python::reference_existing_object>())
+357
+.def(
+"get"
+, &
+jevois::InputFramePython::get
+358
+boost::python::return_value_policy<boost::python::reference_existing_object>())
+359
+.def(
+"hasScaledImage"
+, &
+jevois::InputFramePython::hasScaledImage
+360
+.def(
+"get2"
+, &
+jevois::InputFramePython::get21
+361
+boost::python::return_value_policy<boost::python::reference_existing_object>())
+362
+.def(
+"get2"
+, &
+jevois::InputFramePython::get2
+363
+boost::python::return_value_policy<boost::python::reference_existing_object>())
+364
+.def(
+"getp"
+, &
+jevois::InputFramePython::getp1
+365
+boost::python::return_value_policy<boost::python::reference_existing_object>())
+366
+.def(
+"getp"
+, &
+jevois::InputFramePython::getp
+367
+boost::python::return_value_policy<boost::python::reference_existing_object>())
+368
+.def(
+"done"
+, &
+jevois::InputFramePython::done
+369
+.def(
+"done2"
+, &
+jevois::InputFramePython::done2
+370
+.def(
+"getCvGRAY"
+,  &
+jevois::InputFramePython::getCvGRAY1
+371
+.def(
+"getCvGRAY"
+,  &
+jevois::InputFramePython::getCvGRAY
+372
+.def(
+"getCvBGR"
+,  &
+jevois::InputFramePython::getCvBGR1
+373
+.def(
+"getCvBGR"
+,  &
+jevois::InputFramePython::getCvBGR
+374
+.def(
+"getCvRGB"
+,  &
+jevois::InputFramePython::getCvRGB1
+375
+.def(
+"getCvRGB"
+,  &
+jevois::InputFramePython::getCvRGB
+376
+.def(
+"getCvRGBA"
+,  &
+jevois::InputFramePython::getCvRGBA1
+377
+.def(
+"getCvRGBA"
+,  &
+jevois::InputFramePython::getCvRGBA
+378
+379
+.def(
+"getCvGRAYp"
+,  &
+jevois::InputFramePython::getCvGRAYp
+380
+.def(
+"getCvBGRp"
+,  &
+jevois::InputFramePython::getCvBGRp
+381
+.def(
+"getCvRGBp"
+,  &
+jevois::InputFramePython::getCvRGBp
+382
+.def(
+"getCvRGBAp"
+,  &
+jevois::InputFramePython::getCvRGBAp
+383
+384
+385
+boost::python::class_<jevois::OutputFramePython>(
+"OutputFrame"
+386
+.def(
+"get"
+, &
+jevois::OutputFramePython::get
+387
+boost::python::return_value_policy<boost::python::reference_existing_object>())
+388
+.def(
+"send"
+, &
+jevois::OutputFramePython::send
+389
+390
+.def(
+"sendCv"
+,  &
+jevois::OutputFramePython::sendCv1
+391
+.def(
+"sendCv"
+,  &
+jevois::OutputFramePython::sendCv
+392
+393
+.def(
+"sendCvGRAY"
+,  &
+jevois::OutputFramePython::sendCvGRAY1
+394
+.def(
+"sendCvGRAY"
+,  &
+jevois::OutputFramePython::sendCvGRAY
+395
+.def(
+"sendCvBGR"
+,  &
+jevois::OutputFramePython::sendCvBGR1
+396
+.def(
+"sendCvBGR"
+,  &
+jevois::OutputFramePython::sendCvBGR
+397
+.def(
+"sendCvRGB"
+,  &
+jevois::OutputFramePython::sendCvRGB1
+398
+.def(
+"sendCvRGB"
+,  &
+jevois::OutputFramePython::sendCvRGB
+399
+.def(
+"sendCvRGBA"
+,  &
+jevois::OutputFramePython::sendCvRGBA1
+400
+.def(
+"sendCvRGBA"
+,  &
+jevois::OutputFramePython::sendCvRGBA
+401
+402
+.def(
+"sendScaledCvGRAY"
+,  &
+jevois::OutputFramePython::sendScaledCvGRAY1
+403
+.def(
+"sendScaledCvGRAY"
+,  &
+jevois::OutputFramePython::sendScaledCvGRAY
+404
+.def(
+"sendScaledCvBGR"
+,  &
+jevois::OutputFramePython::sendScaledCvBGR1
+405
+.def(
+"sendScaledCvBGR"
+,  &
+jevois::OutputFramePython::sendScaledCvBGR
+406
+.def(
+"sendScaledCvRGB"
+,  &
+jevois::OutputFramePython::sendScaledCvRGB1
+407
+.def(
+"sendScaledCvRGB"
+,  &
+jevois::OutputFramePython::sendScaledCvRGB
+408
+.def(
+"sendScaledCvRGBA"
+,  &
+jevois::OutputFramePython::sendScaledCvRGBA1
+409
+.def(
+"sendScaledCvRGBA"
+,  &
+jevois::OutputFramePython::sendScaledCvRGBA
+410
+411
+412
+// #################### RawImageOps.H
+413
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(cvImage);
+414
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertToCvGray);
+415
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertToCvBGR);
+416
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertToCvRGB);
+417
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertToCvRGBA);
+418
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(byteSwap);
+419
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(paste);
+420
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(pasteGreyToYUYV);
+421
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(roipaste);
+422
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(drawDisk);
+423
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(drawCircle);
+424
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(drawLine);
+425
+426
+void (*drawRect1)(
+jevois::RawImage
+& img,
+int
+x,
+int
+y,
+unsigned
+int
+w,
+427
+unsigned
+int
+unsigned
+int
+thick,
+unsigned
+int
+col) =
+jevois::rawimage::drawRect
+428
+void (*drawRect2)(
+jevois::RawImage
+& img,
+int
+x,
+int
+y,
+unsigned
+int
+w,
+unsigned
+int
+unsigned
+int
+col) =
+429
+jevois::rawimage::drawRect
+430
+boost::python::def(
+"drawRect"
+, drawRect1);
+431
+boost::python::def(
+"drawRect"
+, drawRect2);
+432
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(drawFilledRect);
+433
+434
+boost::python::enum_<jevois::rawimage::Font>(
+"Font"
+435
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font5x7)
+436
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font6x10)
+437
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font7x13)
+438
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font8x13bold)
+439
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font9x15bold)
+440
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font10x20)
+441
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font11x22)
+442
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font12x22)
+443
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font14x26)
+444
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font15x28)
+445
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font16x29)
+446
+.JEVOIS_PYTHON_RAWIMAGE_ENUM_VAL(Font20x38);
+447
+448
+void (*writeText1)(
+jevois::RawImage
+& img, std::string
+const
+& txt,
+int
+x,
+int
+y,
+449
+unsigned
+int
+col,
+jevois::rawimage::Font
+font) =
+jevois::rawimage::writeText
+450
+boost::python::def(
+"writeText"
+, writeText1);
+451
+452
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertCvGRAYtoRawImage);
+453
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertCvBGRtoRawImage);
+454
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertCvRGBtoRawImage);
+455
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertCvRGBAtoRawImage);
+456
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(unpackCvRGBAtoGrayRawImage);
+457
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(hFlipYUYV);
+458
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertCvRGBtoCvYUYV);
+459
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertCvBGRtoCvYUYV);
+460
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertCvGRAYtoCvYUYV);
+461
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertCvRGBAtoCvYUYV);
+462
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertBayerToYUYV);
+463
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+(convertGreyToYUYV);
+464
+boost::python::def(
+"rescaleCv"
+jevois::rescaleCv
+);
+465
+466
+// #################### Timer.H
+467
+std::string
+const
+& (
+jevois::Timer
+::*timer_stop)() = &
+jevois::Timer::stop
+// select overload with no args
+468
+boost::python::class_<jevois::Timer>(
+"Timer"
+, boost::python::init<char const *, size_t, int>())
+469
+.def(
+"start"
+, &
+jevois::Timer::start
+470
+.def(
+"stop"
+, timer_stop, boost::python::return_value_policy<boost::python::copy_const_reference>());
+471
+472
+// #################### Profiler.H
+473
+boost::python::class_<jevois::Profiler>(
+"Profiler"
+, boost::python::init<char const *, size_t, int>())
+474
+.def(
+"start"
+, &
+jevois::Profiler::start
+475
+.def(
+"checkpoint"
+, &
+jevois::Profiler::checkpoint
+476
+.def(
+"stop"
+, &
+jevois::Profiler::stop
+, boost::python::return_value_policy<boost::python::copy_const_reference>());
+477
+478
+// #################### SysInfo.H
+479
+JEVOIS_PYTHON_FUNC
+(getSysInfoCPU);
+480
+JEVOIS_PYTHON_FUNC
+(getSysInfoMem);
+481
+JEVOIS_PYTHON_FUNC
+(getSysInfoVersion);
+482
+JEVOIS_PYTHON_FUNC
+(getNumInstalledTPUs);
+483
+JEVOIS_PYTHON_FUNC
+(getNumInstalledVPUs);
+484
+JEVOIS_PYTHON_FUNC
+(getNumInstalledNPUs);
+485
+JEVOIS_PYTHON_FUNC
+(getNumInstalledSPUs);
+486
+JEVOIS_PYTHON_FUNC
+(getFanSpeed);
+487
+488
+#ifdef JEVOIS_PRO
+489
+// #################### GUIhelper.H
+490
+boost::python::class_<ImVec2>(
+"ImVec2"
+, boost::python::init<float, float>())
+491
+.def_readwrite(
+"x"
+, &ImVec2::x)
+492
+.def_readwrite(
+"y"
+, &ImVec2::y);
+493
+494
+boost::python::class_<ImVec4>(
+"ImVec4"
+, boost::python::init<float, float, float, float>())
+495
+.def_readwrite(
+"x"
+, &ImVec4::x)
+496
+.def_readwrite(
+"y"
+, &ImVec4::y)
+497
+.def_readwrite(
+"z"
+, &ImVec4::z)
+498
+.def_readwrite(
+"w"
+, &ImVec4::w);
+499
+500
+boost::python::class_<ImColor>(
+"ImColor"
+, boost::python::init<int, int, int, int>())
+501
+.def(boost::python::init<float, float, float, float>())
+502
+.def(boost::python::init<ImU32>())
+503
+.def_readwrite(
+"Value"
+, &ImColor::Value);
+504
+505
+boost::python::class_<jevois::GUIhelperPython>(
+"GUIhelper"
+, boost::python::init<jevois::GUIhelper *>())
+506
+.def(
+"startFrame"
+, &
+jevois::GUIhelperPython::startFrame
+507
+.def(
+"frameStarted"
+, &
+jevois::GUIhelperPython::frameStarted
+508
+.def(
+"drawImage"
+, &
+jevois::GUIhelperPython::drawImage
+509
+.def(
+"drawImage"
+, &
+jevois::GUIhelperPython::drawImage1
+510
+.def(
+"drawImage"
+, &
+jevois::GUIhelperPython::drawImage2
+511
+.def(
+"drawImage"
+, &
+jevois::GUIhelperPython::drawImage3
+512
+.def(
+"drawInputFrame"
+, &
+jevois::GUIhelperPython::drawInputFrame
+513
+.def(
+"drawInputFrame2"
+, &
+jevois::GUIhelperPython::drawInputFrame2
+514
+.def(
+"i2d"
+, &
+jevois::GUIhelperPython::i2d
+515
+.def(
+"i2d"
+, &
+jevois::GUIhelperPython::i2d1
+516
+.def(
+"i2ds"
+, &
+jevois::GUIhelperPython::i2ds
+517
+.def(
+"i2ds"
+, &
+jevois::GUIhelperPython::i2ds1
+518
+.def(
+"drawLine"
+, &
+jevois::GUIhelperPython::drawLine
+519
+.def(
+"drawRect"
+, &
+jevois::GUIhelperPython::drawRect
+520
+.def(
+"drawPoly"
+, &
+jevois::GUIhelperPython::drawPoly
+521
+.def(
+"drawPoly"
+, &
+jevois::GUIhelperPython::drawPoly1
+522
+.def(
+"drawPoly"
+, &
+jevois::GUIhelperPython::drawPoly2
+523
+.def(
+"drawCircle"
+, &
+jevois::GUIhelperPython::drawCircle
+524
+.def(
+"drawEllipse"
+, &
+jevois::GUIhelperPython::drawEllipse
+525
+.def(
+"drawText"
+, &
+jevois::GUIhelperPython::drawText
+526
+.def(
+"iline"
+, &
+jevois::GUIhelperPython::iline
+527
+.def(
+"itext"
+, &
+jevois::GUIhelperPython::itext
+528
+.def(
+"itext"
+, &
+jevois::GUIhelperPython::itext2
+529
+.def(
+"iinfo"
+, &
+jevois::GUIhelperPython::iinfo
+530
+.def(
+"releaseImage"
+, &
+jevois::GUIhelperPython::releaseImage
+531
+.def(
+"releaseImage2"
+, &
+jevois::GUIhelperPython::releaseImage2
+532
+.def(
+"endFrame"
+, &
+jevois::GUIhelperPython::endFrame
+533
+.def(
+"d2i"
+, &
+jevois::GUIhelperPython::d2i
+534
+.def(
+"d2i"
+, &
+jevois::GUIhelperPython::d2i1
+535
+.def(
+"d2is"
+, &
+jevois::GUIhelperPython::d2is
+536
+.def(
+"d2is"
+, &
+jevois::GUIhelperPython::d2is1
+537
+.def(
+"reportError"
+, &
+jevois::GUIhelperPython::reportError
+538
+.def(
+"reportAndIgnoreException"
+, &
+jevois::GUIhelperPython::reportAndIgnoreException
+539
+.def(
+"reportAndRethrowException"
+, &
+jevois::GUIhelperPython::reportAndRethrowException
+540
+.def(
+"getMousePos"
+, &
+jevois::GUIhelperPython::getMousePos
+541
+.def(
+"isMouseClicked"
+, &
+jevois::GUIhelperPython::isMouseClicked
+542
+.def(
+"isMouseDoubleClicked"
+, &
+jevois::GUIhelperPython::isMouseDoubleClicked
+543
+.def(
+"isMouseDragging"
+, &
+jevois::GUIhelperPython::isMouseDragging
+544
+.def(
+"isMouseDown"
+, &
+jevois::GUIhelperPython::isMouseDown
+545
+.def(
+"isMouseReleased"
+, &
+jevois::GUIhelperPython::isMouseReleased
+546
+547
+548
+// #################### ChatBox.H:
+549
+boost::python::class_<jevois::ChatBox>(
+"ChatBox"
+, boost::python::init<std::string>())
+550
+.def(
+"get"
+, &
+jevois::ChatBox::get
+551
+.def(
+"writeString"
+, &
+jevois::ChatBox::writeString
+552
+.def(
+"draw"
+, &
+jevois::ChatBox::draw
+553
+.def(
+"freeze"
+, &
+jevois::ChatBox::freeze
+554
+.def(
+"clear"
+, &
+jevois::ChatBox::clear
+555
+.def(
+"wasCleared"
+, &
+jevois::ChatBox::wasCleared
+556
+557
+#endif
+558
+559
+// #################### ParameterDef.H
+560
+boost::python::class_<jevois::ParameterCategory>(
+"ParameterCategory"
+, boost::python::init<std::string, std::string>())
+561
+.def_readonly(
+"name"
+, &
+jevois::ParameterCategory::name
+562
+.def_readonly(
+"description"
+, &
+jevois::ParameterCategory::description
+563
+564
+565
+// #################### Parameter support:
+566
+boost::python::def(
+"getParamStr"
+, pythonGetParamStringUnique);
+567
+boost::python::def(
+"setParamStr"
+, pythonSetParamStringUnique);
+568
+569
+// #################### Dynamic parameter support:
+570
+boost::python::class_<jevois::PythonParameter>(
+"Parameter"
+, boost::python::init<boost::python::object &,
+571
+std::string
+const
+&, std::string
+const
+&, std::string
+const
+&,
+572
+boost::python::object
+const
+&,
+jevois::ParameterCategory
+const
+&>())
+573
+.def(
+"name"
+, &
+jevois::PythonParameter::name
+574
+boost::python::return_value_policy<boost::python::reference_existing_object>())
+575
+.def(
+"descriptor"
+, &
+jevois::PythonParameter::descriptor
+576
+.def(
+"get"
+, &
+jevois::PythonParameter::get
+577
+.def(
+"set"
+, &
+jevois::PythonParameter::set
+578
+.def(
+"strget"
+, &
+jevois::PythonParameter::strget
+579
+.def(
+"strset"
+, &
+jevois::PythonParameter::strset
+580
+.def(
+"freeze"
+, &
+jevois::PythonParameter::freeze
+581
+.def(
+"frozen"
+, &
+jevois::PythonParameter::frozen
+582
+.def(
+"hide"
+, &
+jevois::PythonParameter::hide
+583
+.def(
+"hidden"
+, &
+jevois::PythonParameter::hidden
+584
+.def(
+"reset"
+, &
+jevois::PythonParameter::reset
+585
+.def(
+"setCallback"
+, &
+jevois::PythonParameter::setCallback
+586
+.def(
+"setValidValues"
+, &
+jevois::PythonParameter::setValidValues
+587
+588
+589
+// #################### Allow python code to access dnn::PreProcessor helper functions:
+590
+// python cannot construct PreProcessor, but PostProcessorPython can use an existing one.
+591
+boost::python::class_<jevois::dnn::PreProcessorForPython>(
+"PreProcessor"
+, boost::python::no_init)
+592
+.def(
+"imagesize"
+, &jevois::dnn::PreProcessorForPython::imagesize)
+593
+.def(
+"blobs"
+, &jevois::dnn::PreProcessorForPython::blobs)
+594
+.def(
+"blobsize"
+, &jevois::dnn::PreProcessorForPython::blobsize)
+595
+.def(
+"b2i"
+, &jevois::dnn::PreProcessorForPython::b2i)
+596
+.def(
+"getUnscaledCropRect"
+, &jevois::dnn::PreProcessorForPython::getUnscaledCropRect)
+597
+.def(
+"i2b"
+, &jevois::dnn::PreProcessorForPython::i2b)
+598
+599
+600
+// #################### Allow python code to use PostProcessorDetectYOLOforPython
+601
+boost::python::class_<jevois::dnn::PostProcessorDetectYOLOforPython>(
+"PyPostYOLO"
+602
+.def(
+"freeze"
+, &jevois::dnn::PostProcessorDetectYOLOforPython::freeze)
+603
+.def(
+"yolo"
+, &jevois::dnn::PostProcessorDetectYOLOforPython::yolo)
+604
+605
+606
+// #################### DNN/Utils.H:
+607
+JEVOIS_PYTHON_DNN_FUNC
+(stringToRGBA);
+608
+std::string (*shapestr1)(cv::Mat
+const
+& m) =
+jevois::dnn::shapestr
+609
+boost::python::def(
+"shapestr"
+, shapestr1);
+610
+611
+Camera.H
+ChatBox.H
+JEVOIS_VERSION_PATCH
+#define JEVOIS_VERSION_PATCH
+Definition
+Config.H:22
+JEVOIS_VERSION_MINOR
+#define JEVOIS_VERSION_MINOR
+Definition
+Config.H:21
+JEVOIS_SHARE_PATH
+#define JEVOIS_SHARE_PATH
+Base path for shared files (e.g., neural network weights, etc)
+Definition
+Config.H:82
+JEVOIS_VERSION_MAJOR
+#define JEVOIS_VERSION_MAJOR
+Variables set by CMake.
+Definition
+Config.H:20
+JEVOIS_PYDNN_PATH
+#define JEVOIS_PYDNN_PATH
+Directory where python pre/net/post DNN processors are stored:
+Definition
+Config.H:88
+Coordinates.H
+Utils.H
+Engine.H
+#define o
+Definition
+Font10x20.C:6
+int h
+Definition
+GUIhelper.C:2580
+IMU.H
+Log.H
+ParameterStringConversion.H
+PreProcessorPython.H
+Profiler.H
+PythonModule.H
+PythonOpenCV.H
+PythonParameter.H
+stdToImg2
+void(* stdToImg2)(float &x, float &y, unsigned int const width, unsigned int const height, float const eps)
+Definition
+PythonSupport.C:299
+imgToStd1
+void(* imgToStd1)(float &x, float &y, jevois::RawImage const &camimg, float const eps)
+Definition
+PythonSupport.C:292
+JEVOIS_PYTHON_RAWIMAGE_FUNC
+#define JEVOIS_PYTHON_RAWIMAGE_FUNC(funcname)
+Definition
+PythonSupport.C:50
+JEVOIS_PYTHON_FUNC
+#define JEVOIS_PYTHON_FUNC(funcname)
+Definition
+PythonSupport.C:47
+JEVOIS_PYTHON_CONSTANT
+#define JEVOIS_PYTHON_CONSTANT(cst)
+Definition
+PythonSupport.C:59
+stdToImg1
+void(* stdToImg1)(float &x, float &y, jevois::RawImage const &camimg, float const eps)
+Definition
+PythonSupport.C:298
+JEVOIS_PYTHON_DNN_FUNC
+#define JEVOIS_PYTHON_DNN_FUNC(funcname)
+Definition
+PythonSupport.C:62
+imgToStd2
+void(* imgToStd2)(float &x, float &y, unsigned int const width, unsigned int const height, float const eps)
+Definition
+PythonSupport.C:293
+PythonSupport.H
+RawImageOps.H
+RawImage.H
+Serial.H
+StdioInterface.H
+SysInfo.H
+Timer.H
+UserInterface.H
+Utils.H
+jevois::CameraCalibration
+Helper class for camera calibration, which allows some modules to compute 3D locations of objects.
+Definition
+CameraCalibration.H:29
+jevois::CameraCalibration::camMatrix
+cv::Mat camMatrix
+3x3 camera matrix
+Definition
+CameraCalibration.H:35
+jevois::CameraCalibration::distCoeffs
+cv::Mat distCoeffs
+5x1 distortion coefficients
+Definition
+CameraCalibration.H:36
+jevois::ChatBox::freeze
+void freeze(bool doit, std::string const &waitmsg)
+Freeze/unfreeze the input box, typically to prevent new inputs until current reply is done.
+Definition
+ChatBox.C:95
+jevois::ChatBox::draw
+void draw()
+Render into an ImGui window.
+Definition
+ChatBox.C:109
+jevois::ChatBox::get
+std::string get()
+Get input string from user, or empty if no new input.
+Definition
+ChatBox.C:54
+jevois::ChatBox::wasCleared
+bool wasCleared()
+Returns true once after the user clicked the "Clear chat" button.
+Definition
+ChatBox.C:46
+jevois::ChatBox::writeString
+void writeString(std::string const &out)
+Update text that is displayed above input box (output from the underlying chat bot)
+Definition
+ChatBox.C:71
+jevois::ChatBox::clear
+void clear()
+Clear all displayed text:
+Definition
+ChatBox.C:39
+jevois::Component
+A component of a model hierarchy.
+Definition
+Component.H:182
+jevois::Component::getParamStringUnique
+std::string getParamStringUnique(std::string const &paramdescriptor) const
+Get a parameter value by string, simple version assuming only one parameter match.
+Definition
+Component.C:405
+jevois::Component::setParamStringUnique
+void setParamStringUnique(std::string const &paramdescriptor, std::string const &val)
+Set a parameter value by string, simple version assuming only one parameter match.
+Definition
+Component.C:374
+jevois::Engine
+JeVois processing engine - gets images from camera sensor, processes them, and sends results over USB...
+Definition
+Engine.H:416
+jevois::GUIhelperPython::itext2
+void itext2(char const *txt)
+Draw some overlay text on top of an image, default color and line.
+Definition
+PythonModule.C:433
+jevois::GUIhelperPython::iinfo
+void iinfo(jevois::InputFramePython const &inframe, std::string const &fpscpu, unsigned short winw=0, unsigned short winh=0)
+Display processing and video info at bottom of screen.
+Definition
+PythonModule.C:439
+jevois::GUIhelperPython::getMousePos
+ImVec2 getMousePos()
+ImGui helper: get mouse position.
+Definition
+PythonModule.C:482
+jevois::GUIhelperPython::reportError
+void reportError(std::string const &err)
+Report an error in an overlay window.
+Definition
+PythonModule.C:464
+jevois::GUIhelperPython::releaseImage
+void releaseImage(char const *name)
+Release an image.
+Definition
+PythonModule.C:446
+jevois::GUIhelperPython::d2is1
+ImVec2 d2is1(float x, float y, char const *name=nullptr)
+Convert a 2D size from on-screen to within a rendered image.
+Definition
+PythonModule.C:367
+jevois::GUIhelperPython::reportAndRethrowException
+void reportAndRethrowException(std::string const &prefix="")
+Report current exception in a modal dialog, then re-throw it.
+Definition
+PythonModule.C:476
+jevois::GUIhelperPython::d2is
+ImVec2 d2is(ImVec2 p, char const *name=nullptr)
+Convert a 2D size from on-screen to within a rendered image.
+Definition
+PythonModule.C:361
+jevois::GUIhelperPython::d2i
+ImVec2 d2i(ImVec2 p, char const *name=nullptr)
+Convert coordinates of a point from on-screen to within a rendered image.
+Definition
+PythonModule.C:349
+jevois::GUIhelperPython::reportAndIgnoreException
+void reportAndIgnoreException(std::string const &prefix="")
+Report current exception in a modal dialog, then ignore it.
+Definition
+PythonModule.C:470
+jevois::GUIhelperPython::drawCircle
+void drawCircle(float x, float y, float r, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw circle over an image.
+Definition
+PythonModule.C:403
+jevois::GUIhelperPython::d2i1
+ImVec2 d2i1(float x, float y, char const *name=nullptr)
+Convert coordinates of a point from on-screen to within a rendered image.
+Definition
+PythonModule.C:355
+jevois::GUIhelperPython::drawInputFrame2
+boost::python::tuple drawInputFrame2(char const *name, InputFramePython const &frame, bool noalias=false, bool casync=false)
+Draw the second (scaled) input video frame from the camera using zero-copy.
+Definition
+PythonModule.C:316
+jevois::GUIhelperPython::drawPoly2
+void drawPoly2(cv::Mat const &pts, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw polygon over an image.
+Definition
+PythonModule.C:397
+jevois::GUIhelperPython::drawPoly1
+void drawPoly1(std::vector< cv::Point2f > const &pts, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw polygon over an image.
+Definition
+PythonModule.C:391
+jevois::GUIhelperPython::i2d1
+ImVec2 i2d1(float x, float y, char const *name=nullptr)
+Convert coordinates of a point from within a rendered image to on-screen.
+Definition
+PythonModule.C:331
+jevois::GUIhelperPython::drawPoly
+void drawPoly(std::vector< cv::Point > const &pts, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw polygon over an image.
+Definition
+PythonModule.C:385
+jevois::GUIhelperPython::endFrame
+void endFrame()
+Finish current frame and render it.
+Definition
+PythonModule.C:458
+jevois::GUIhelperPython::isMouseDown
+bool isMouseDown(int button_num)
+ImGui helper: check if mouse button pressed.
+Definition
+PythonModule.C:498
+jevois::GUIhelperPython::iline
+ImVec2 iline(int line=-1, char const *name=nullptr)
+Get coordinates of the start of a given line of text to be drawn as overlay on top of an image.
+Definition
+PythonModule.C:421
+jevois::GUIhelperPython::drawText
+void drawText(float x, float y, char const *txt, ImU32 col=IM_COL32(128, 255, 128, 255))
+Draw text over an image.
+Definition
+PythonModule.C:415
+jevois::GUIhelperPython::drawImage
+boost::python::tuple drawImage(char const *name, RawImage const &img, bool noalias=false, bool isoverlay=false)
+Draw a RawImage, copying pixel data to an OpenGL texture.
+Definition
+PythonModule.C:267
+jevois::GUIhelperPython::drawImage3
+boost::python::tuple drawImage3(char const *name, cv::Mat const &img, bool rgb, int x, int y, int w, int h, bool noalias=false, bool isoverlay=false)
+Draw an OpenCV image, copying pixel data to an OpenGL texture.
+Definition
+PythonModule.C:296
+jevois::GUIhelperPython::i2d
+ImVec2 i2d(ImVec2 p, char const *name=nullptr)
+Convert coordinates of a point from within a rendered image to on-screen.
+Definition
+PythonModule.C:325
+jevois::GUIhelperPython::releaseImage2
+void releaseImage2(char const *name)
+Release an image, second video stream.
+Definition
+PythonModule.C:452
+jevois::GUIhelperPython::isMouseReleased
+bool isMouseReleased(int button_num)
+ImGui helper: check if mouse button released.
+Definition
+PythonModule.C:502
+jevois::GUIhelperPython::drawImage1
+boost::python::tuple drawImage1(char const *name, cv::Mat const &img, bool rgb, bool noalias=false, bool isoverlay=false)
+Draw an OpenCV image, copying pixel data to an OpenGL texture.
+Definition
+PythonModule.C:276
+jevois::GUIhelperPython::i2ds1
+ImVec2 i2ds1(float x, float y, char const *name=nullptr)
+Convert a 2D size from within a rendered image to on-screen.
+Definition
+PythonModule.C:343
+jevois::GUIhelperPython::frameStarted
+bool frameStarted() const
+Helper to indicate that startFrame() was called, and thus endFrame() should be called.
+Definition
+PythonModule.C:261
+jevois::GUIhelperPython::i2ds
+ImVec2 i2ds(ImVec2 p, char const *name=nullptr)
+Convert a 2D size from within a rendered image to on-screen.
+Definition
+PythonModule.C:337
+jevois::GUIhelperPython::itext
+void itext(char const *txt, ImU32 const &col=IM_COL32_BLACK_TRANS, int line=-1)
+Draw some overlay text on top of an image.
+Definition
+PythonModule.C:427
+jevois::GUIhelperPython::isMouseDragging
+bool isMouseDragging(int button_num)
+ImGui helper: check if mouse button dragged.
+Definition
+PythonModule.C:494
+jevois::GUIhelperPython::isMouseClicked
+bool isMouseClicked(int button_num)
+ImGui helper: check if mouse button clicked.
+Definition
+PythonModule.C:486
+jevois::GUIhelperPython::drawRect
+void drawRect(float x1, float y1, float x2, float y2, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw rectangular box over an image.
+Definition
+PythonModule.C:379
+jevois::GUIhelperPython::startFrame
+boost::python::tuple startFrame()
+Start a new rendering frame.
+Definition
+PythonModule.C:253
+jevois::GUIhelperPython::drawEllipse
+void drawEllipse(float x, float y, float rx, float ry, float rot=0.0F, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw ellipse over an image.
+Definition
+PythonModule.C:409
+jevois::GUIhelperPython::drawLine
+void drawLine(float x1, float y1, float x2, float y2, ImU32 col=IM_COL32(128, 255, 128, 255))
+Draw line over an image.
+Definition
+PythonModule.C:373
+jevois::GUIhelperPython::drawImage2
+boost::python::tuple drawImage2(char const *name, RawImage const &img, int x, int y, int w, int h, bool noalias=false, bool isoverlay=false)
+Draw an OpenCV image, copying pixel data to an OpenGL texture.
+Definition
+PythonModule.C:285
+jevois::GUIhelperPython::drawInputFrame
+boost::python::tuple drawInputFrame(char const *name, InputFramePython const &frame, bool noalias=false, bool casync=false)
+Draw the input video frame from the camera using zero-copy.
+Definition
+PythonModule.C:307
+jevois::GUIhelperPython::isMouseDoubleClicked
+bool isMouseDoubleClicked(int button_num)
+ImGui helper: check if mouse button double-clicked.
+Definition
+PythonModule.C:490
+jevois::InputFramePython::getp
+RawImage const & getp() const
+Get the next captured camera image that is intended for processing.
+Definition
+PythonModule.C:64
+jevois::InputFramePython::getCvGRAYp
+cv::Mat getCvGRAYp() const
+Shorthand to get the input image for processing as a GRAY cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:119
+jevois::InputFramePython::getCvRGBA
+cv::Mat getCvRGBA() const
+Shorthand to get the input image as a RGBA cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:114
+jevois::InputFramePython::get2
+RawImage const & get2() const
+Get the next captured camera image, ISP-scaled second frame.
+Definition
+PythonModule.C:54
+jevois::InputFramePython::get1
+RawImage const & get1(bool casync) const
+Get the next captured camera image, thin wrapper for default arg value.
+Definition
+PythonModule.C:34
+jevois::InputFramePython::getCvRGBA1
+cv::Mat getCvRGBA1(bool casync) const
+Shorthand to get the input image as a RGBA cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:109
+jevois::InputFramePython::getCvRGBp
+cv::Mat getCvRGBp() const
+Shorthand to get the input image for processing as a RGB cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:129
+jevois::InputFramePython::getCvRGBAp
+cv::Mat getCvRGBAp() const
+Shorthand to get the input image for processing as a RGBA cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:134
+jevois::InputFramePython::getCvBGR
+cv::Mat getCvBGR() const
+Shorthand to get the input image as a BGR cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:94
+jevois::InputFramePython::get
+RawImage const & get() const
+Get the next captured camera image, thin wrapper for default arg value.
+Definition
+PythonModule.C:39
+jevois::InputFramePython::getCvBGR1
+cv::Mat getCvBGR1(bool casync) const
+Shorthand to get the input image as a BGR cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:89
+jevois::InputFramePython::getCvBGRp
+cv::Mat getCvBGRp() const
+Shorthand to get the input image for processing as a BGR cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:124
+jevois::InputFramePython::getCvRGB
+cv::Mat getCvRGB() const
+Shorthand to get the input image as a RGB cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:104
+jevois::InputFramePython::get21
+RawImage const & get21(bool casync) const
+Get the next captured camera image, ISP-scaled second frame.
+Definition
+PythonModule.C:49
+jevois::InputFramePython::done
+void done() const
+Indicate that user processing is done with the image previously obtained via get()
+Definition
+PythonModule.C:69
+jevois::InputFramePython::getCvGRAY1
+cv::Mat getCvGRAY1(bool casync) const
+Shorthand to get the input image as a GRAY cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:79
+jevois::InputFramePython::getp1
+RawImage const & getp1(bool casync) const
+Get the next captured camera image that is intended for processing.
+Definition
+PythonModule.C:59
+jevois::InputFramePython::getCvRGB1
+cv::Mat getCvRGB1(bool casync) const
+Shorthand to get the input image as a RGB cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:99
+jevois::InputFramePython::done2
+void done2() const
+Indicate that user processing is done with the ISP-scaled image previously obtained via get2()
+Definition
+PythonModule.C:74
+jevois::InputFramePython::hasScaledImage
+bool hasScaledImage() const
+Check whether a second input image scaled by the JeVoisPro Platform ISP is available.
+Definition
+PythonModule.C:44
+jevois::InputFramePython::getCvGRAY
+cv::Mat getCvGRAY() const
+Shorthand to get the input image as a GRAY cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:84
+jevois::OutputFramePython::sendScaledCvRGBA1
+void sendScaledCvRGBA1(cv::Mat const &img, int quality) const
+Shorthand to send a RGBA cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:235
+jevois::OutputFramePython::sendScaledCvBGR1
+void sendScaledCvBGR1(cv::Mat const &img, int quality) const
+Shorthand to send a BGR cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:215
+jevois::OutputFramePython::sendScaledCvGRAY1
+void sendScaledCvGRAY1(cv::Mat const &img, int quality) const
+Shorthand to send a GRAY cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:205
+jevois::OutputFramePython::get
+RawImage const & get() const
+Get the next captured camera image.
+Definition
+PythonModule.C:145
+jevois::OutputFramePython::sendCvRGB1
+void sendCvRGB1(cv::Mat const &img, int quality) const
+Shorthand to send a RGB cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:185
+jevois::OutputFramePython::sendScaledCvRGB1
+void sendScaledCvRGB1(cv::Mat const &img, int quality) const
+Shorthand to send a RGB cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:225
+jevois::OutputFramePython::send
+void send() const
+Indicate that user processing is done with the image previously obtained via get()
+Definition
+PythonModule.C:150
+jevois::OutputFramePython::sendScaledCvBGR
+void sendScaledCvBGR(cv::Mat const &img) const
+Shorthand to send a BGR cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:220
+jevois::OutputFramePython::sendCvGRAY1
+void sendCvGRAY1(cv::Mat const &img, int quality) const
+Shorthand to send a GRAY cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:165
+jevois::OutputFramePython::sendCvBGR1
+void sendCvBGR1(cv::Mat const &img, int quality) const
+Shorthand to send a BGR cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:175
+jevois::OutputFramePython::sendCvBGR
+void sendCvBGR(cv::Mat const &img) const
+Shorthand to send a BGR cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:180
+jevois::OutputFramePython::sendScaledCvRGB
+void sendScaledCvRGB(cv::Mat const &img) const
+Shorthand to send a RGB cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:230
+jevois::OutputFramePython::sendScaledCvRGBA
+void sendScaledCvRGBA(cv::Mat const &img) const
+Shorthand to send a RGBA cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:240
+jevois::OutputFramePython::sendCv1
+void sendCv1(cv::Mat const &img, int quality) const
+Shorthand to send a cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:155
+jevois::OutputFramePython::sendCvRGB
+void sendCvRGB(cv::Mat const &img) const
+Shorthand to send a RGB cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:190
+jevois::OutputFramePython::sendScaledCvGRAY
+void sendScaledCvGRAY(cv::Mat const &img) const
+Shorthand to send a GRAY cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:210
+jevois::OutputFramePython::sendCvRGBA
+void sendCvRGBA(cv::Mat const &img) const
+Shorthand to send a RGBA cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:200
+jevois::OutputFramePython::sendCv
+void sendCv(cv::Mat const &img) const
+Shorthand to send a cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:160
+jevois::OutputFramePython::sendCvRGBA1
+void sendCvRGBA1(cv::Mat const &img, int quality) const
+Shorthand to send a RGBA cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:195
+jevois::OutputFramePython::sendCvGRAY
+void sendCvGRAY(cv::Mat const &img) const
+Shorthand to send a GRAY cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:170
+jevois::Profiler::stop
+void stop()
+End a time measurement period, report time spent for each checkpoint if reporting interval is reached...
+Definition
+Profiler.C:74
+jevois::Profiler::start
+void start()
+Start a time measurement period.
+Definition
+Profiler.C:33
+jevois::Profiler::checkpoint
+void checkpoint(char const *description)
+Note the time for a particular event.
+Definition
+Profiler.C:39
+jevois::PythonParameter::name
+std::string const & name() const
+Get the parameter name.
+Definition
+PythonParameter.C:126
+jevois::PythonParameter::set
+void set(boost::python::object const &newVal)
+Set the value of this Parameter.
+Definition
+PythonParameter.C:138
+jevois::PythonParameter::strget
+std::string const strget() const
+Get the value as a string.
+Definition
+PythonParameter.C:142
+jevois::PythonParameter::strset
+void strset(std::string const &valstring)
+Set the value from a string representation of it.
+Definition
+PythonParameter.C:146
+jevois::PythonParameter::hide
+void hide(bool doit)
+Hide or un-hide a parameter; hidden params will not show up in GUI or help message,...
+Definition
+PythonParameter.C:158
+jevois::PythonParameter::reset
+void reset()
+Reset this parameter to its default value.
+Definition
+PythonParameter.C:166
+jevois::PythonParameter::frozen
+bool frozen() const
+Returns whether parameter is frozen.
+Definition
+PythonParameter.C:154
+jevois::PythonParameter::get
+boost::python::object get() const
+Get the value of this Parameter.
+Definition
+PythonParameter.C:134
+jevois::PythonParameter::freeze
+void freeze(bool doit)
+Freeze/unfreeze this parameter, it becomes read-only and will not show up in the help message.
+Definition
+PythonParameter.C:150
+jevois::PythonParameter::setCallback
+void setCallback(boost::python::object const &cb)
+Set the parameter's callback.
+Definition
+PythonParameter.C:170
+jevois::PythonParameter::setValidValues
+void setValidValues(boost::python::list const &vv)
+Set valid values that the parameter may take from a list.
+Definition
+PythonParameter.C:174
+jevois::PythonParameter::hidden
+bool hidden() const
+Returns whether parameter is hidden.
+Definition
+PythonParameter.C:162
+jevois::PythonParameter::descriptor
+std::string descriptor() const
+Get the parameter fully-qualified name, aka descriptor, including names of owning Component and all p...
+Definition
+PythonParameter.C:130
+jevois::RawImage
+A raw image as coming from a V4L2 Camera and/or being sent out to a USB Gadget.
+Definition
+RawImage.H:111
+jevois::RawImage::fps
+float fps
+Programmed frames/s as given by current video mapping, may not be actual.
+Definition
+RawImage.H:148
+jevois::RawImage::coordsOk
+bool coordsOk(int x, int y) const
+Helper function to check that coords are within image bounds.
+Definition
+RawImage.C:88
+jevois::RawImage::fmt
+unsigned int fmt
+Pixel format as a V4L2_PIX_FMT_XXX.
+Definition
+RawImage.H:147
+jevois::RawImage::bytesize
+unsigned int bytesize() const
+Helper function to get the total number of bytes in the RawImage, i.e., width * height * bytesperpix(...
+Definition
+RawImage.C:38
+jevois::RawImage::invalidate
+void invalidate()
+Invalidate the image by zero'ing out the pointer to pixel buffer and the dims and format.
+Definition
+RawImage.C:42
+jevois::RawImage::width
+unsigned int width
+Image width in pixels.
+Definition
+RawImage.H:145
+jevois::RawImage::bytesperpix
+unsigned int bytesperpix() const
+Helper function to get the number of bytes/pixel given the RawImage pixel format.
+Definition
+RawImage.C:34
+jevois::RawImage::height
+unsigned int height
+Image height in pixels.
+Definition
+RawImage.H:146
+jevois::RawImage::require
+void require(char const *info, unsigned int w, unsigned int h, unsigned int f) const
+Require a particular image size and format, issue a fatal error message and throw if no match.
+Definition
+RawImage.C:80
+jevois::RawImage::clear
+void clear()
+Clear the pixels to all black.
+Definition
+RawImage.C:50
+jevois::RawImage::valid
+bool valid() const
+Check whether the image has a valid pixel buffer.
+Definition
+RawImage.C:46
+jevois::Timer
+Simple timer class.
+Definition
+Timer.H:35
+jevois::Timer::stop
+std::string const & stop()
+Same as the other signature of stop() except does not provide seconds, for python bindings.
+Definition
+Timer.C:146
+jevois::Timer::start
+void start()
+Start a time measurement period.
+Definition
+Timer.C:40
+jevois::coords::imgToStdX
+void imgToStdX(float &x, unsigned int const width, float const eps=0.1F)
+Transform X coordinate in-place from camera to standardized, using given image width and height.
+Definition
+Coordinates.C:36
+jevois::coords::stdToImg
+void stdToImg(float &x, float &y, RawImage const &camimg, float const eps=0.1F)
+Transform coordinates in-place from standardized to image, using a RawImage to establish image size.
+Definition
+Coordinates.C:60
+jevois::coords::imgToStdY
+void imgToStdY(float &y, unsigned int const height, float const eps=0.1F)
+Transform Y coordinate in-place from camera to standardized, using given image width and height.
+Definition
+Coordinates.C:43
+jevois::coords::imgToStd
+void imgToStd(float &x, float &y, RawImage const &camimg, float const eps=0.1F)
+Transform coordinates in-place from camera to standardized, using a RawImage to establish image size.
+Definition
+Coordinates.C:22
+jevois::coords::imgToStdSize
+void imgToStdSize(float &w, float &h, unsigned int const width, unsigned int const height, float const eps=0.1F)
+Transform size in-place from camera to standardized, using given image width and height.
+Definition
+Coordinates.C:50
+jevois::coords::stdToImgSize
+void stdToImgSize(float &x, float &y, unsigned int const width, unsigned int const height, float const eps=0.1F)
+Transform size in-place from standardized to image, using a RawImage to establish image size.
+Definition
+Coordinates.C:74
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+LDEBUG
+#define LDEBUG(msg)
+Convenience macro for users to print out console or syslog messages, DEBUG level.
+Definition
+Log.H:173
+LERROR
+#define LERROR(msg)
+Convenience macro for users to print out console or syslog messages, ERROR level.
+Definition
+Log.H:211
+LINFO
+#define LINFO(msg)
+Convenience macro for users to print out console or syslog messages, INFO level.
+Definition
+Log.H:194
+jevois::dnn::shapestr
+std::string shapestr(cv::Mat const &m)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional cv::Mat with data type TYPE.
+Definition
+Utils.C:126
+jevois::rawimage::writeText
+void writeText(RawImage &img, std::string const &txt, int x, int y, unsigned int col, Font font=Font6x10)
+Write some text in an image.
+Definition
+RawImageOps.C:690
+jevois::rescaleCv
+cv::Mat rescaleCv(cv::Mat const &img, cv::Size const &newdims)
+Rescale an OpenCV image, choosing the right kind of interpolation.
+Definition
+RawImageOps.C:1660
+jevois::rawimage::Font
+Font
+Available fonts for writeText()
+Definition
+RawImageOps.H:154
+jevois::rawimage::drawRect
+void drawRect(RawImage &img, int x, int y, unsigned int w, unsigned int h, unsigned int thick, unsigned int col)
+Draw a rectangle in a YUYV image.
+Definition
+RawImageOps.C:607
+jevois::python::setEngine
+void setEngine(jevois::Engine *e)
+Initialize Python, numpy, and allow python modules to send serial outputs through the JeVois Engine.
+Definition
+PythonSupport.C:102
+jevois::python::hasattr
+bool hasattr(boost::python::object &o, char const *name)
+Check whether a boost::python::object has an attribute.
+Definition
+PythonSupport.C:116
+jevois::python::engineForPythonModule
+Engine * engineForPythonModule
+Definition
+PythonSupport.C:70
+jevois::python::YUYV
+YUYV
+Definition
+PythonSupport.C:213
+jevois::python::LightGreen
+@ LightGreen
+Definition
+PythonSupport.C:214
+jevois::python::LightTeal
+@ LightTeal
+Definition
+PythonSupport.C:215
+jevois::python::MedPink
+@ MedPink
+Definition
+PythonSupport.C:216
+jevois::python::DarkTeal
+@ DarkTeal
+Definition
+PythonSupport.C:214
+jevois::python::DarkGreen
+@ DarkGreen
+Definition
+PythonSupport.C:214
+jevois::python::MedGreen
+@ MedGreen
+Definition
+PythonSupport.C:214
+jevois::python::DarkGrey
+@ DarkGrey
+Definition
+PythonSupport.C:213
+jevois::python::DarkPink
+@ DarkPink
+Definition
+PythonSupport.C:216
+jevois::python::DarkPurple
+@ DarkPurple
+Definition
+PythonSupport.C:215
+jevois::python::LightGrey
+@ LightGrey
+Definition
+PythonSupport.C:213
+jevois::python::MedTeal
+@ MedTeal
+Definition
+PythonSupport.C:214
+jevois::python::MedPurple
+@ MedPurple
+Definition
+PythonSupport.C:215
+jevois::python::LightPurple
+@ LightPurple
+Definition
+PythonSupport.C:215
+jevois::python::White
+@ White
+Definition
+PythonSupport.C:213
+jevois::python::LightPink
+@ LightPink
+Definition
+PythonSupport.C:216
+jevois::python::Black
+@ Black
+Definition
+PythonSupport.C:213
+jevois::python::MedGrey
+@ MedGrey
+Definition
+PythonSupport.C:213
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+jevois::ParameterCategory
+A category to which multiple ParameterDef definitions can belong.
+Definition
+ParameterDef.H:34
+jevois::ParameterCategory::name
+std::string name
+The name of the category.
+Definition
+ParameterDef.H:38
+jevois::ParameterCategory::description
+std::string description
+An optional short description of the category.
+Definition
+ParameterDef.H:39
+src
+jevois
+Core
+PythonSupport.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+

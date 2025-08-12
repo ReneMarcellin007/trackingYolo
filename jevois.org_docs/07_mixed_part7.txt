@@ -1,0 +1,1173 @@
+DOCUMENTATION JEVOIS - PARTIE 7
+Catégorie principale: MIXED
+Nombre de documents: 6
+================================================================================
+
+
+================================================================================
+URL: http://jevois.org/doc/Network_8H_source.html
+TITRE: JeVois: include/jevois/DNN/Network.H Source File
+================================================================================
+
+JeVois: include/jevois/DNN/Network.H Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+Network.H
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#pragma once
+19
+20
+#include <
+jevois/Component/Component.H
+21
+#include <
+jevois/Types/Enum.H
+22
+23
+#include <ovxlib/vsi_nn_pub.h>
+// for data types and quantization types
+24
+25
+#include <opencv2/core/core.hpp>
+26
+#include <vector>
+27
+28
+namespace
+jevois
+29
+30
+namespace
+dnn
+31
+32
+namespace
+network
+33
+34
+// We define all parameters for all derived classes here to avoid duplicate definitions. Different derived classes
+35
+// will use different subsets of all available parameters:
+36
+static
+jevois::ParameterCategory
+const
+ParamCateg(
+"DNN Network Options"
+);
+37
+38
+//! Parameter \relates jevois::dnn::Network
+39
+JEVOIS_DECLARE_PARAMETER
+(comment, std::string,
+"Optional comment about the network"
+40
+""
+, ParamCateg);
+41
+42
+//! Parameter \relates jevois::dnn::Network
+43
+JEVOIS_DECLARE_PARAMETER
+(url, std::string,
+"Optional URL for the network"
+44
+""
+, ParamCateg);
+45
+46
+//! Parameter \relates jevois::dnn::Network
+47
+JEVOIS_DECLARE_PARAMETER
+(dataroot, std::string,
+"Root directory to use when config or model parameters "
+48
+"are relative paths."
+49
+JEVOIS_SHARE_PATH
+, ParamCateg);
+50
+51
+//! Parameter \relates jevois::dnn::Network
+52
+JEVOIS_DECLARE_PARAMETER
+(config, std::string,
+"Path to a text file that contains network configuration. "
+53
+"Can have extension .prototxt (Caffe), .pbtxt (TensorFlow), or .cfg (Darknet). "
+54
+"If path is relative, it will be prefixed by dataroot."
+55
+""
+, ParamCateg);
+56
+57
+//! Parameter \relates jevois::dnn::Network
+58
+JEVOIS_DECLARE_PARAMETER
+(model, std::string,
+"Path to a binary file of model contains trained weights. "
+59
+"Can have extension .caffemodel (Caffe), .pb (TensorFlow), .t7 or .net (Torch), "
+60
+".tflite (TensorFlow Lite), or .weights (Darknet). If path is relative, it will be "
+61
+"prefixed by dataroot."
+62
+""
+, ParamCateg);
+63
+#ifdef JEVOIS_PRO
+64
+//! Parameter \relates jevois::dnn::NetworkNPU
+65
+JEVOIS_DECLARE_PARAMETER
+(library, std::string,
+"Optional path to a compiled .so library that can load and "
+66
+"instantiate a NPU model. If a library is provided, then intensors and outtensors "
+67
+"can be left empty, otherwise they have to describe exactly the inputs and outputs "
+68
+"of the NPU model. This library is obtained along with the NPU .nb model when "
+69
+"converting for NPU using the KSNN convert tool. If path is relative, it will be "
+70
+"prefixed by dataroot."
+71
+""
+, ParamCateg);
+72
+#endif
+73
+74
+#ifdef JEVOIS_PRO
+75
+//! Enum \relates jevois::dnn::Network
+76
+JEVOIS_DEFINE_ENUM_CLASS
+(Target, (CPU) (OpenCL) (OpenCL_FP16) (Myriad) (NPU) );
+77
+#else
+78
+//! Enum \relates jevois::dnn::Network
+79
+JEVOIS_DEFINE_ENUM_CLASS
+(Target, (CPU) );
+80
+#endif
+81
+82
+//! Parameter \relates jevois::dnn::Network
+83
+JEVOIS_DECLARE_PARAMETER
+(target, Target,
+"OpenCV compute target to use. Changes will take effect "
+84
+"next time you load a different model."
+85
+Target::CPU, Target_Values, ParamCateg);
+86
+#ifdef JEVOIS_PRO
+87
+//! Enum \relates jevois::dnn::Network
+88
+JEVOIS_DEFINE_ENUM_CLASS
+(Backend, (OpenCV) (InferenceEngine) (TimVX) );
+89
+#define JEVOIS_BACKEND_DEFAULT Backend::OpenCV
+90
+#else
+91
+//! Enum \relates jevois::dnn::Network
+92
+JEVOIS_DEFINE_ENUM_CLASS
+(Backend, (Default) );
+93
+#define JEVOIS_BACKEND_DEFAULT Backend::Default
+94
+#endif
+95
+96
+//! Parameter \relates jevois::dnn::Network
+97
+JEVOIS_DECLARE_PARAMETER
+(backend, Backend,
+"OpenCV compute backend to use. Default will use the inference "
+98
+"engine if available, otherwise OpenCV (note that inference engine only works on Intel "
+99
+"processors or MyriadX hardware, thus you should normally select OpenCV when running "
+100
+"on JeVois-Pro Platform, unless you want to use an optional MyriadX accelerator). "
+101
+"Changes will take effect next time you load a model."
+102
+JEVOIS_BACKEND_DEFAULT
+, Backend_Values, ParamCateg);
+103
+104
+//! Parameter \relates jevois::dnn::Network
+105
+JEVOIS_DECLARE_PARAMETER
+(intensors, std::string,
+"Specification of input tensors"
+106
+""
+, ParamCateg);
+107
+108
+//! Parameter \relates jevois::dnn::Network
+109
+JEVOIS_DECLARE_PARAMETER
+(extraintensors, std::string,
+"Specification of extra fixed input tensors that will be "
+110
+"added after the regular intensors. Format is: "
+111
+"<type>:<shape>:val1 val2 ... valN, <type>:<shape>:val1 ... valN. The values "
+112
+"are usually listed in the parameter when the tensor is small. Otherwise, they "
+113
+"should be listed as 'external' and set by calling jevois::Network::setExtraInput(). "
+114
+"For example, for URetinex-Net which takes a single float value as second input: "
+115
+"32F:1x1x1:3.0"
+116
+""
+, ParamCateg);
+117
+118
+//! Parameter \relates jevois::dnn::Network
+119
+JEVOIS_DECLARE_PARAMETER
+(outtensors, std::string,
+"Specification of output tensors"
+120
+""
+, ParamCateg);
+121
+122
+//! Parameter \relates jevois::dnn::Network
+123
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(outtransform, std::string,
+"Specification of a sequence of operations "
+124
+"(reshape, transpose, split, merge, etc) to be applied to the output "
+125
+"tensors. Useful to match a particular network's outputs to the "
+126
+"tensor shapes expected by a particular post-processor. The sequence of "
+127
+"operations is separated by semicolons, and applied from left to right. "
+128
+"Operations specified here are applied after any de-quantization."
+129
+""
+, ParamCateg);
+130
+131
+//! Parameter \relates jevois::dnn::Network
+132
+JEVOIS_DECLARE_PARAMETER
+(dequant,
+bool
+"Dequantize output tensors to float32 from their native quantized type"
+133
+true
+, ParamCateg);
+134
+135
+//! Parameter \relates jevois::dnn::NetworkPython
+136
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(pynet, std::string,
+"Full path of the python network processor file. "
+137
+"Name of class defined in the file must match the file name without "
+138
+"the trailing '.py'"
+139
+""
+, ParamCateg);
+140
+#ifdef JEVOIS_PRO
+141
+//! Parameter \relates jevois::dnn::Network
+142
+JEVOIS_DECLARE_PARAMETER
+(tpunum,
+size_t
+"Coral EdgeTPU number to use to run this model, typically 0, or can be "
+143
+"1 when using a dual-TPU add-on board, or more when using additional TPUs connected "
+144
+"to USB ports"
+145
+0, ParamCateg);
+146
+147
+//! Parameter \relates jevois::dnn::Network
+148
+JEVOIS_DECLARE_PARAMETER
+(spunum,
+size_t
+"Hailo8 device number to use to run this model, typically 0 unless "
+149
+"several Hailo8 accelerators are connected to the system"
+150
+0, ParamCateg);
+151
+152
+//! Parameter \relates jevois::dnn::NetworkNPU
+153
+JEVOIS_DECLARE_PARAMETER
+(verifygraph,
+bool
+"Verify NPU graph after loading it"
+154
+true
+, ParamCateg);
+155
+156
+//! Parameter \relates jevois::dnn::NetworkNPU
+157
+JEVOIS_DECLARE_PARAMETER
+(ovxver, std::string,
+"ovxlib version to use with NPU network, or leave blank "
+158
+"to use latest version"
+159
+""
+, boost::regex(
+"^$|^[0-9]+\\.[0-9]+\\.[0-9]+$"
+), ParamCateg);
+160
+161
+//! Parameter \relates jevois::dnn::NetworkHailo
+162
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(turbo,
+bool
+"Turbo mode. Has no significant effect on small or "
+163
+"fast networks. Use with caution as it may lead to overheating, not "
+164
+"recommended for production"
+165
+false
+, ParamCateg);
+166
+#endif
+167
+168
+169
+//! Abstract class to represent a neural network
+170
+/*! Derived classes provide implementation via OpenCV (on CPU, OpenCL, or OpenVino/Myriad-X), ONNX-Runtime,
+171
+Amlogic/Vivante NPU, Hailo-8, Python, or Google Coral TPU.
+172
+173
+The Network class can apply optional transforms to the output tensors:
+174
+175
+- `dequant`: dequantize the output tensors
+176
+177
+- `outtransform`: apply a semicolon-separated sequence (from left to right) of transforms to the
+178
+outputs. Outputs are numbered starting at 0. Available transforms are:
+179
+180
++ `shape(outnum, AxBxC...)` to reshape an output to a given new shape. Does not change or move any tensor
+181
+data. Total number of data elements must remain the same. Useful to squeeze/unsqueeze tensors.
+182
+183
++ `transpose(outnum, oldaxisA, oldaxisB, ...)` where transposed new axis 0 (the outermost dimension, typically
+184
+batch size) will be from oldaxisA, new axis 1 from oldaxisB, etc. If outnum is *, transpose all outputs.
+185
+186
++ `order(oldidx0, oldidx1, ...)` where the new ordering of the output tensors will be: new tensor 0: old
+187
+tensor oldidx0 (which is zero-based); new tensor 1: old tensor oldidx1, etc. It is ok to have duplicated or
+188
+missing entries.
+189
+190
++ `split(outnum, axis, newsize1, ..., newsizeN)` where axis 0 is the outtermost dimension (typically, batch
+191
+size), and newsize1 + ... + newsizeN must be equal to the original size of that axis. If outnum is *, split
+192
+all outputs.
+193
+194
++ `merge(axis, outnum1, ..., outnumN)` where axis 0 is the outermost dimension (typically, batch size) and
+195
+outnum1, ..., outnumN are the outputs to merge along that axis. All the outputs to be merged must have
+196
+matching number of dimensions, and matching sizes on all other axes.  The merged tensor will replace the
+197
+first output listed in the merge, and the other listed will be removed. Outputs to merge must be listed in
+198
+ascending order (use an order() transform first if needed)
+199
+200
+See the model zoo files in /jevoispro/share/dnn/ for examples. For instance:
+201
+\code{.py}
+202
+outtransform: "split(*,1,80,64); order(1,0,3,2,5,4); transpose(*,0,2,3,1)"
+203
+\endcode
+204
+205
+\ingroup dnn */
+206
+class
+Network
+public
+Component
+207
+public
+Parameter<network::comment, network::url, network::outtransform, network::extraintensors>
+208
+209
+public
+210
+//! Inherited constructor ok
+211
+using
+jevois::Component::Component
+212
+213
+//! Destructor
+214
+/*! CAUTION: derived classes must call waitBeforeDestroy() in their destructor */
+215
+virtual
+~Network
+();
+216
+217
+//! If network is currently loading, wait until that is done before destroying
+218
+/*! CAUTION: derived classes must call waitBeforeDestroy() in their destructor */
+219
+void
+waitBeforeDestroy
+();
+220
+221
+//! Returns true when network is ready to run (loaded and initialized)
+222
+bool
+ready
+();
+223
+224
+//! Get shapes of all input tensors
+225
+virtual
+std::vector<vsi_nn_tensor_attr_t>
+inputShapes
+() = 0;
+226
+227
+//! Get shapes of all output tensors
+228
+virtual
+std::vector<vsi_nn_tensor_attr_t>
+outputShapes
+() = 0;
+229
+230
+//! Process input blobs and obtain output blobs
+231
+/*! Network implementations may push information data into the info string, which will be displayed to
+232
+user. Convention is: if an info line starts with '* ', it is a header, and if it starts with '- ' it is a
+233
+bullet. Info should always be organized into headers at the top level. */
+234
+std::vector<cv::Mat>
+process
+(std::vector<cv::Mat>
+const
+& blobs, std::vector<std::string> & info);
+235
+236
+//! Freeze/unfreeze parameters that users should not change while running
+237
+/*! Note: derived classes can freeze their own params by overriding this function, and should remember to still
+238
+call the base class jevois::dnn::Network::freeze(doit) */
+239
+virtual
+void
+freeze
+bool
+doit);
+240
+241
+//! Set an extra input tensor, or remove it if given Mat is empty
+242
+/*! The input will not be pre-processed. Its data type and size must match what the network expects. The number
+243
+passed here is the overall network's input number, including the regular inputs that start at 0. */
+244
+void
+setExtraInput
+size_t
+num, cv::Mat
+const
+& in);
+245
+246
+//! Set an extra input tensor from a given F32 tensor, or remove it if given Mat is empty
+247
+/*! The input will not be pre-processed. Its data type and size must match what the network expects. The number
+248
+passed here is the overall network's input number, including the regular inputs that start at 0. */
+249
+void
+setExtraInputFromFloat32
+size_t
+num, cv::Mat
+const
+& in);
+250
+251
+protected
+252
+//! Load from disk
+253
+virtual
+void
+load
+() = 0;
+254
+255
+//! Process input blobs and obtain output blobs
+256
+virtual
+std::vector<cv::Mat>
+doprocess
+(std::vector<cv::Mat>
+const
+& blobs,
+257
+std::vector<std::string> & info) = 0;
+258
+259
+void
+onParamChange
+(network::outtransform
+const
+& param, std::string
+const
+& val)
+override
+260
+261
+private
+262
+std::atomic<bool> itsLoading =
+false
+263
+std::atomic<bool> itsLoaded =
+false
+264
+std::future<void> itsLoadFut;
+265
+266
+// Output transformations:
+267
+enum class
+Operator { Shape, Transpose, Order, Split, Merge };
+268
+struct
+Oper
+269
+270
+Operator op;
+271
+std::vector<size_t> tnum;
+// output tensor numbers (indices within the output array)
+272
+std::vector<int> newvals;
+// New values (operator-dependent: could be new output orders, new tensor dims)
+273
+};
+274
+std::vector<Oper> itsOps;
+275
+276
+std::map<size_t, cv::Mat> itsExtraInputs;
+277
+std::mutex itsExtraInputsMtx;
+278
+};
+279
+280
+// namespace dnn
+281
+// namespace jevois
+Component.H
+JEVOIS_SHARE_PATH
+#define JEVOIS_SHARE_PATH
+Base path for shared files (e.g., neural network weights, etc)
+Definition
+Config.H:82
+Enum.H
+JEVOIS_BACKEND_DEFAULT
+#define JEVOIS_BACKEND_DEFAULT
+Definition
+Network.H:89
+jevois::Component
+A component of a model hierarchy.
+Definition
+Component.H:182
+jevois::ParameterRegistry::Component
+friend class Component
+Allow Component and DynamicParameter to access our registry data, everyone else is locked out.
+Definition
+ParameterRegistry.H:51
+jevois::dnn::NetworkHailo::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(turbo, bool, "Turbo mode. Has no significant effect on small or " "fast networks. Use with caution as it may lead to overheating, not " "recommended for production", false, ParamCateg)
+Parameter.
+jevois::dnn::NetworkNPU::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(verifygraph, bool, "Verify NPU graph after loading it", true, ParamCateg)
+Parameter.
+jevois::dnn::NetworkNPU::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(ovxver, std::string, "ovxlib version to use with NPU network, or leave blank " "to use latest version", "", boost::regex("^$|^[0-9]+\\.[0-9]+\\.[0-9]+$"), ParamCateg)
+Parameter.
+jevois::dnn::NetworkNPU::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(library, std::string, "Optional path to a compiled .so library that can load and " "instantiate a NPU model. If a library is provided, then intensors and outtensors " "can be left empty, otherwise they have to describe exactly the inputs and outputs " "of the NPU model. This library is obtained along with the NPU .nb model when " "converting for NPU using the KSNN convert tool. If path is relative, it will be " "prefixed by dataroot.", "", ParamCateg)
+Parameter.
+jevois::dnn::NetworkPython::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(pynet, std::string, "Full path of the python network processor file. " "Name of class defined in the file must match the file name without " "the trailing '.py'", "", ParamCateg)
+Parameter.
+jevois::dnn::Network
+Abstract class to represent a neural network.
+Definition
+Network.H:208
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(outtransform, std::string, "Specification of a sequence of operations " "(reshape, transpose, split, merge, etc) to be applied to the output " "tensors. Useful to match a particular network's outputs to the " "tensor shapes expected by a particular post-processor. The sequence of " "operations is separated by semicolons, and applied from left to right. " "Operations specified here are applied after any de-quantization.", "", ParamCateg)
+Parameter.
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(url, std::string, "Optional URL for the network", "", ParamCateg)
+Parameter.
+jevois::dnn::Network::load
+virtual void load()=0
+Load from disk.
+jevois::dnn::Network::ready
+bool ready()
+Returns true when network is ready to run (loaded and initialized)
+Definition
+Network.C:165
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(dequant, bool, "Dequantize output tensors to float32 from their native quantized type", true, ParamCateg)
+Parameter.
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(spunum, size_t, "Hailo8 device number to use to run this model, typically 0 unless " "several Hailo8 accelerators are connected to the system", 0, ParamCateg)
+Parameter.
+jevois::dnn::Network::process
+std::vector< cv::Mat > process(std::vector< cv::Mat > const &blobs, std::vector< std::string > &info)
+Process input blobs and obtain output blobs.
+Definition
+Network.C:244
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(config, std::string, "Path to a text file that contains network configuration. " "Can have extension .prototxt (Caffe), .pbtxt (TensorFlow), or .cfg (Darknet). " "If path is relative, it will be prefixed by dataroot.", "", ParamCateg)
+Parameter.
+jevois::dnn::Network::onParamChange
+void onParamChange(network::outtransform const &param, std::string const &val) override
+Definition
+Network.C:40
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(intensors, std::string, "Specification of input tensors", "", ParamCateg)
+Parameter.
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(extraintensors, std::string, "Specification of extra fixed input tensors that will be " "added after the regular intensors. Format is: " "<type>:<shape>:val1 val2 ... valN, <type>:<shape>:val1 ... valN. The values " "are usually listed in the parameter when the tensor is small. Otherwise, they " "should be listed as 'external' and set by calling jevois::Network::setExtraInput(). " "For example, for URetinex-Net which takes a single float value as second input: " "32F:1x1x1:3.0", "", ParamCateg)
+Parameter.
+jevois::dnn::Network::setExtraInput
+void setExtraInput(size_t num, cv::Mat const &in)
+Set an extra input tensor, or remove it if given Mat is empty.
+Definition
+Network.C:201
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(target, Target, "OpenCV compute target to use. Changes will take effect " "next time you load a different model.", Target::CPU, Target_Values, ParamCateg)
+Parameter.
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(model, std::string, "Path to a binary file of model contains trained weights. " "Can have extension .caffemodel (Caffe), .pb (TensorFlow), .t7 or .net (Torch), " ".tflite (TensorFlow Lite), or .weights (Darknet). If path is relative, it will be " "prefixed by dataroot.", "", ParamCateg)
+Parameter.
+jevois::dnn::Network::waitBeforeDestroy
+void waitBeforeDestroy()
+If network is currently loading, wait until that is done before destroying.
+Definition
+Network.C:152
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(backend, Backend, "OpenCV compute backend to use. Default will use the inference " "engine if available, otherwise OpenCV (note that inference engine only works on Intel " "processors or MyriadX hardware, thus you should normally select OpenCV when running " "on JeVois-Pro Platform, unless you want to use an optional MyriadX accelerator). " "Changes will take effect next time you load a model.", JEVOIS_BACKEND_DEFAULT, Backend_Values, ParamCateg)
+Parameter.
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(outtensors, std::string, "Specification of output tensors", "", ParamCateg)
+Parameter.
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(tpunum, size_t, "Coral EdgeTPU number to use to run this model, typically 0, or can be " "1 when using a dual-TPU add-on board, or more when using additional TPUs connected " "to USB ports", 0, ParamCateg)
+Parameter.
+jevois::dnn::Network::outputShapes
+virtual std::vector< vsi_nn_tensor_attr_t > outputShapes()=0
+Get shapes of all output tensors.
+jevois::dnn::Network::inputShapes
+virtual std::vector< vsi_nn_tensor_attr_t > inputShapes()=0
+Get shapes of all input tensors.
+jevois::dnn::Network::doprocess
+virtual std::vector< cv::Mat > doprocess(std::vector< cv::Mat > const &blobs, std::vector< std::string > &info)=0
+Process input blobs and obtain output blobs.
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(comment, std::string, "Optional comment about the network", "", ParamCateg)
+Parameter.
+jevois::dnn::Network::~Network
+virtual ~Network()
+Destructor.
+Definition
+Network.C:28
+jevois::dnn::Network::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(Target,(CPU)(OpenCL)(OpenCL_FP16)(Myriad)(NPU))
+Enum.
+jevois::dnn::Network::setExtraInputFromFloat32
+void setExtraInputFromFloat32(size_t num, cv::Mat const &in)
+Set an extra input tensor from a given F32 tensor, or remove it if given Mat is empty.
+Definition
+Network.C:211
+jevois::dnn::Network::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(Backend,(OpenCV)(InferenceEngine)(TimVX))
+Enum.
+jevois::dnn::Network::freeze
+virtual void freeze(bool doit)
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+Network.C:32
+jevois::dnn::Network::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(dataroot, std::string, "Root directory to use when config or model parameters " "are relative paths.", JEVOIS_SHARE_PATH, ParamCateg)
+Parameter.
+jevois::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(CameraSensor,(any)(imx290)(os08a10)(ar0234))
+Enum for different sensor models.
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+jevois::ParameterCategory
+A category to which multiple ParameterDef definitions can belong.
+Definition
+ParameterDef.H:34
+include
+jevois
+DNN
+Network.H
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/NetworkNPU_8H_source.html
+TITRE: JeVois: include/jevois/DNN/NetworkNPU.H Source File
+================================================================================
+
+JeVois: include/jevois/DNN/NetworkNPU.H Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+NetworkNPU.H
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#pragma once
+19
+20
+#ifdef JEVOIS_PLATFORM_PRO
+21
+22
+#include <
+jevois/DNN/Network.H
+23
+#include <vsi_nn_pub.h>
+24
+#include <vsi_nn_graph.h>
+25
+26
+namespace
+jevois
+27
+28
+class
+DynamicLoader;
+29
+30
+namespace
+dnn
+31
+32
+//! Wrapper around a DNN neural network running on Amlogic A311D NPU accelerator (Verisilicon)
+33
+/*! \ingroup dnn */
+34
+class
+NetworkNPU
+public
+jevois::dnn::Network
+35
+public
+jevois::Parameter<network::intensors, network::outtensors, network::dataroot,
+36
+network::model, network::library, network::dequant, network::verifygraph,
+37
+network::ovxver>
+38
+39
+public
+40
+//! Inherited constructor ok
+41
+using
+jevois::dnn::Network::Network;
+42
+43
+//! Destructor
+44
+virtual
+~NetworkNPU
+();
+45
+46
+//! Freeze/unfreeze parameters that users should not change while running
+47
+void
+freeze
+bool
+doit)
+override
+48
+49
+//! Get shapes of all input tensors
+50
+virtual
+std::vector<vsi_nn_tensor_attr_t>
+inputShapes
+()
+override
+51
+52
+//! Get shapes of all output tensors
+53
+virtual
+std::vector<vsi_nn_tensor_attr_t>
+outputShapes
+()
+override
+54
+55
+protected
+56
+//! Load from disk
+57
+void
+load
+()
+override
+58
+59
+//! Process input blobs and obtain output blobs
+60
+std::vector<cv::Mat>
+doprocess
+(std::vector<cv::Mat>
+const
+& blobs,
+61
+std::vector<std::string> & info)
+override
+62
+63
+private
+64
+void
+create_tensors(std::vector<vsi_nn_tensor_attr_t> & attrs, vsi_nn_node_t * node,
+bool
+isin);
+65
+66
+vsi_nn_context_t itsCtx = 0;
+67
+vsi_nn_graph_t * itsGraph =
+nullptr
+68
+std::shared_ptr<jevois::DynamicLoader> itsLibLoader;
+69
+};
+70
+71
+// namespace dnn
+72
+// namespace jevois
+73
+74
+#endif
+// JEVOIS_PLATFORM_PRO
+Network.H
+jevois::dnn::NetworkNPU
+Wrapper around a DNN neural network running on Amlogic A311D NPU accelerator (Verisilicon)
+Definition
+NetworkNPU.H:38
+jevois::dnn::NetworkNPU::inputShapes
+virtual std::vector< vsi_nn_tensor_attr_t > inputShapes() override
+Get shapes of all input tensors.
+Definition
+NetworkNPU.C:99
+jevois::dnn::NetworkNPU::outputShapes
+virtual std::vector< vsi_nn_tensor_attr_t > outputShapes() override
+Get shapes of all output tensors.
+Definition
+NetworkNPU.C:135
+jevois::dnn::NetworkNPU::~NetworkNPU
+virtual ~NetworkNPU()
+Destructor.
+Definition
+NetworkNPU.C:180
+jevois::dnn::NetworkNPU::doprocess
+std::vector< cv::Mat > doprocess(std::vector< cv::Mat > const &blobs, std::vector< std::string > &info) override
+Process input blobs and obtain output blobs.
+Definition
+NetworkNPU.C:338
+jevois::dnn::NetworkNPU::freeze
+void freeze(bool doit) override
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+NetworkNPU.C:190
+jevois::dnn::NetworkNPU::load
+void load() override
+Load from disk.
+Definition
+NetworkNPU.C:202
+jevois::dnn::Network
+Abstract class to represent a neural network.
+Definition
+Network.H:208
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+include
+jevois
+DNN
+NetworkNPU.H
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/basedoc/classMultiDNN2.html
+TITRE: JeVoisBase: MultiDNN2 Class Reference
+================================================================================
+
+Run multiple neural networks in parallel with an overlapping display.
+See
+DNN
+for more details about the JeVois
+DNN
+framework.
+Edit the module's
+params.cfg
+file to select which models to run.
+You can load any model at runtime by setting the
+pipe
+parameter for each pipeline.
+Author
+Laurent Itti
+Display Name:
+MultiDNN2
+Videomapping:
+NONE 0 0 0.0 YUYV 640 480 15.0 JeVois
+MultiDNN2
+Videomapping:
+YUYV 640 498 15.0 YUYV 640 480 15.0 JeVois
+MultiDNN2
+Email:
+itti@usc.edu
+Address:
+University of Southern California, HNB-07A, 3641 Watt Way, Los Angeles, CA 90089-2520, USA
+Copyright
+Copyright (C) 2018 by Laurent Itti, iLab and the University of Southern California
+Main URL:
+http://jevois.org
+Support URL:
+http://jevois.org/doc
+Other URL:
+http://iLab.usc.edu
+License:
+GPL v3
+Distribution:
+Unrestricted
+Restrictions:
+None
+Definition at line
+54
+of file
+MultiDNN2.C
+
+
+================================================================================
+URL: http://jevois.org/basedoc/classMultiDNN.html
+TITRE: JeVoisBase: MultiDNN Class Reference
+================================================================================
+
+Run multiple neural networks in parallel with a tiled display.
+See
+DNN
+for more details about the JeVois
+DNN
+framework.
+Edit the module's
+params.cfg
+file to select which models to run.
+You can load any model at runtime by setting the
+pipe
+parameter for each pipeline.
+Author
+Laurent Itti
+Display Name:
+MultiDNN
+Videomapping:
+NONE 0 0 0.0 YUYV 640 480 15.0 JeVois
+MultiDNN
+Videomapping:
+YUYV 640 498 15.0 YUYV 640 480 15.0 JeVois
+MultiDNN
+Email:
+itti@usc.edu
+Address:
+University of Southern California, HNB-07A, 3641 Watt Way, Los Angeles, CA 90089-2520, USA
+Copyright
+Copyright (C) 2018 by Laurent Itti, iLab and the University of Southern California
+Main URL:
+http://jevois.org
+Support URL:
+http://jevois.org/doc
+Other URL:
+http://iLab.usc.edu
+License:
+GPL v3
+Distribution:
+Unrestricted
+Restrictions:
+None
+Definition at line
+55
+of file
+MultiDNN.C
+
+
+================================================================================
+URL: http://jevois.org/moddoc/MultiDNN2/modinfo.html
+TITRE: Titre non trouvé
+================================================================================
+
+See
+DNN
+for more details about the JeVois DNN framework.
+Edit the module's
+params.cfg
+file to select which models to run.
+You can load any model at runtime by setting the
+pipe
+parameter for each pipeline.
+
+
+================================================================================
+URL: http://jevois.org/moddoc/MultiDNN/modinfo.html
+TITRE: Titre non trouvé
+================================================================================
+
+See
+DNN
+for more details about the JeVois DNN framework.
+Edit the module's
+params.cfg
+file to select which models to run.
+You can load any model at runtime by setting the
+pipe
+parameter for each pipeline.
+

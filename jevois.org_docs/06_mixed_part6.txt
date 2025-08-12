@@ -1,0 +1,2261 @@
+DOCUMENTATION JEVOIS - PARTIE 6
+Catégorie principale: MIXED
+Nombre de documents: 3
+================================================================================
+
+
+================================================================================
+URL: http://jevois.org/doc/Pipeline_8H_source.html
+TITRE: JeVois: include/jevois/DNN/Pipeline.H Source File
+================================================================================
+
+JeVois: include/jevois/DNN/Pipeline.H Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+Pipeline.H
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#pragma once
+19
+20
+#include <
+jevois/Component/Component.H
+21
+#include <
+jevois/GPU/GUIhelper.H
+22
+#include <
+jevois/Debug/Timer.H
+23
+#include <
+jevois/Types/Enum.H
+24
+#include <
+jevois/Types/ObjReco.H
+25
+#include <
+jevois/Types/ObjDetect.H
+26
+#include <
+jevois/Types/PoseSkeleton.H
+27
+28
+#include <ovxlib/vsi_nn_pub.h>
+// for data types and quantization types
+29
+30
+namespace
+jevois
+31
+32
+class
+StdModule;
+33
+class
+RawImage;
+34
+35
+namespace
+dnn
+36
+37
+class
+PreProcessor;
+38
+class
+Network;
+39
+class
+PostProcessor;
+40
+41
+namespace
+pipeline
+42
+43
+static
+jevois::ParameterCategory
+const
+ParamCateg(
+"DNN Pipeline Options"
+);
+44
+45
+//! Parameter \relates jevois::dnn::Pipeline
+46
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(zooroot, std::string,
+"Path where to find zoo files (.yml). "
+47
+"If not absolute, it is relative to this module's path"
+48
+JEVOIS_SHARE_PATH
+"/dnn"
+, ParamCateg);
+49
+50
+//! Parameter \relates jevois::dnn::Pipeline
+51
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(zoo, std::string,
+"Filename for neural network zoo file (.yml). "
+52
+"If not absolute, it is relative to zooroot"
+53
+"models.yml"
+, ParamCateg);
+54
+//! Enum \relates jevois::dnn::Pipeline
+55
+JEVOIS_DEFINE_ENUM_CLASS
+(Filter, (All) (OpenCV) (TPU) (NPU) (VPU) (VPUX) (NPUX) (SPU) (ORT) );
+56
+57
+//! Parameter \relates jevois::dnn::Pipeline
+58
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(filter, Filter,
+"Filter to possibly only show as options in "
+59
+"the 'pipe' parameter some class of models from the zoo"
+60
+Filter::All, Filter_Values, ParamCateg);
+61
+62
+//! Parameter \relates jevois::dnn::Pipeline
+63
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(pipe, std::string,
+"Pipeline to use, which should correspond to a "
+64
+"top-level entry in the zoo file. Network execution types are: OpenCV: "
+65
+"on CPU, NPU: on JeVois NPU accelerator, TPU: on Coral Edge TPU if "
+66
+"available, VPU: on MyriadX VPU if available, NPUX: on NPU via TimVX "
+67
+"OpenCV extension, VPUX: on CPU via ARM-Compute OpenVino emulation "
+68
+"of VPU, and SPU: on Hailo8 SPU if available."
+69
+""
+, ParamCateg);
+70
+71
+//! Enum \relates jevois::dnn::Pipeline
+72
+JEVOIS_DEFINE_ENUM_CLASS
+(PreProc, (Blob) (Python) );
+73
+74
+//! Parameter \relates jevois::dnn::Pipeline
+75
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(preproc, PreProc,
+"Pre-Processor to use, usually set automatically "
+76
+"by selecting a pipeline from the zoo file"
+77
+PreProc::Blob, PreProc_Values, ParamCateg);
+78
+//! Enum \relates jevois::dnn::Pipeline
+79
+#ifdef JEVOIS_PRO
+80
+JEVOIS_DEFINE_ENUM_CLASS
+(NetType, (OpenCV) (ORT) (NPU) (TPU) (SPU) (Python) );
+81
+#else
+82
+JEVOIS_DEFINE_ENUM_CLASS
+(NetType, (OpenCV) (Python) );
+83
+#endif
+84
+85
+//! Parameter \relates jevois::dnn::Pipeline
+86
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(nettype, NetType,
+"Network runtime framework to use, usually set "
+87
+"automatically by selecting a pipeline from the zoo file"
+88
+NetType::OpenCV, NetType_Values, ParamCateg);
+89
+//! Enum \relates jevois::dnn::Pipeline
+90
+JEVOIS_DEFINE_ENUM_CLASS
+(PostProc, (Classify) (Detect) (DetectOBB) (Segment) (YuNet) (Pose) (Python) (Stub) );
+91
+92
+//! Parameter \relates jevois::dnn::Pipeline
+93
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(postproc, PostProc,
+"Post-Processor to use, usually set automatically "
+94
+"by selecting a pipeline from the zoo file"
+95
+PostProc::Classify, PostProc_Values, ParamCateg);
+96
+//! Enum \relates jevois::dnn::Pipeline
+97
+JEVOIS_DEFINE_ENUM_CLASS
+(Processing, (Sync) (Async) );
+98
+99
+//! Parameter \relates jevois::dnn::Pipeline
+100
+JEVOIS_DECLARE_PARAMETER
+(processing, Processing,
+"Type of processing: Sync runs pre-processing, "
+101
+"network, and post-processing sequentially for every frame. Use for fast "
+102
+"networks only, otherwise it will slow down the GUI... Async runs the network in "
+103
+"a thread and should be used for networks slower than the camera framerate."
+104
+Processing::Async, Processing_Values, ParamCateg);
+105
+106
+//! Parameter \relates jevois::dnn::Pipeline
+107
+JEVOIS_DECLARE_PARAMETER
+(overlay,
+bool
+"Show some pipeline info as an overlay over output or GUI video"
+108
+true
+, ParamCateg);
+109
+110
+//! Parameter \relates jevois::dnn::Pipeline
+111
+JEVOIS_DECLARE_PARAMETER
+(paramwarn,
+bool
+"Issue warning if parameters are specified in the zoo file for "
+112
+"a pipeline, but the pipeline's component is not using them. Warnings appear "
+113
+"in the console when the pipeline is loaded."
+114
+true
+, ParamCateg);
+115
+116
+//! Parameter \relates jevois::dnn::Pipeline
+117
+JEVOIS_DECLARE_PARAMETER
+(statsfile, std::string,
+"Append pre/net/post timing statistics in HTML table format "
+118
+"to the specified file if not empty. If path is relative, it is to "
+JEVOIS_SHARE_PATH
+119
+""
+, ParamCateg);
+120
+121
+//! Parameter \relates jevois::dnn::Pipeline
+122
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(benchmark,
+bool
+"Cycle through all networks specified by filter and, "
+123
+"for each, run it for a while and append pre/net/post timing statistics "
+124
+"in HTML table format to "
+JEVOIS_SHARE_PATH
+"/benchmark.html"
+125
+false
+, ParamCateg);
+126
+127
+//! Parameter \relates jevois::dnn::Pipeline
+128
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+(extramodels,
+bool
+"If true, show all available models, including older "
+129
+"ones, in the pipe list; otherwise, only those not marked 'extramodel' "
+130
+"in their model zoo definition"
+131
+false
+, ParamCateg);
+132
+133
+134
+//! Neural processing pipeline
+135
+/*! A neural processing pipeline in JeVois consists of:
+136
+137
+- pre-processing an input image to extract one or more blobs used as input tensors to a deep neural network
+138
+- processing the input blobs through a deep network to obtain output blobs
+139
+- post-processing the output blobs to display results and send serial messages
+140
+141
+A pipeline is typically configured by parsing a YAML config file (zoo file) that determines what kind of
+142
+pre-processing, network, and post-processing to use, and that sets the parameters for those.  \ingroup dnn */
+143
+class
+Pipeline
+public
+jevois::Component
+144
+public
+jevois::Parameter<pipeline::zooroot, pipeline::zoo, pipeline::filter, pipeline::pipe,
+145
+pipeline::processing, pipeline::preproc, pipeline::nettype,
+146
+pipeline::postproc, pipeline::overlay, pipeline::paramwarn,
+147
+pipeline::statsfile, pipeline::benchmark, pipeline::extramodels>
+148
+149
+public
+150
+//! Constructor
+151
+Pipeline
+(std::string
+const
+& instance);
+152
+153
+//! Destructor
+154
+virtual
+~Pipeline
+();
+155
+156
+//! Returns true when all three of preproc, net, and postproc are ready
+157
+bool
+ready
+()
+const
+158
+159
+//! Process an input image, send results to serial/image/gui
+160
+/*! If the network is not ready, no processing will occur. When helper is not null (i.e., using GUI display),
+161
+hide the information window when idle is true. This function catches all exceptions and reports them. */
+162
+void
+process
+jevois::RawImage
+const
+& inimg,
+jevois::StdModule
+* mod,
+163
+jevois::RawImage
+* outimg,
+jevois::OptGUIhelper
+* helper,
+bool
+idle =
+false
+);
+164
+165
+//! Freeze/unfreeze parameters that users should not change while running
+166
+void
+freeze
+bool
+doit);
+167
+168
+//! Get the latest recognition results, use with caution, not thread-safe
+169
+/*! This returns a reference to our internal vector of recognitions. That vector will get overwritten every time
+170
+process() is called. It is ok to use this after you have called process() on the current frame, but do not
+171
+hold this ref past the end of the current video frame. If you need to keep a persistent copy of the data,
+172
+make a deep copy of the vector. Throws if the post-processor is not of type Classify. */
+173
+std::vector<ObjReco>
+const
+latestRecognitions
+()
+const
+174
+175
+//! Get the latest detection results, use with caution, not thread-safe
+176
+/*! This returns a reference to our internal vector of detections. That vector will get overwritten every time
+177
+process() is called. It is ok to use this after you have called process() on the current frame, but do not
+178
+hold this ref past the end of the current video frame. If you need to keep a persistent copy of the data,
+179
+make a deep copy of the vector. Throws if the post-processor is not of type Detect or Pose. */
+180
+std::vector<ObjDetect>
+const
+latestDetections
+()
+const
+181
+182
+//! Get the latest oriented bounded box (OBB) detection results, use with caution, not thread-safe
+183
+/*! This returns a reference to our internal vector of detections. That vector will get overwritten every time
+184
+process() is called. It is ok to use this after you have called process() on the current frame, but do not
+185
+hold this ref past the end of the current video frame. If you need to keep a persistent copy of the data,
+186
+make a deep copy of the vector. Throws if the post-processor is not of type DetectOBB. */
+187
+std::vector<ObjDetectOBB>
+const
+latestDetectionsOBB
+()
+const
+188
+189
+//! Get the latest skeletons, use with caution, not thread-safe
+190
+/*! This returns a reference to our internal vector of skeletons. That vector will get overwritten every time
+191
+process() is called. It is ok to use this after you have called process()  on the current frame, but do not
+192
+hold this ref past the end of the current video frame. If you need to keep a persistent copy of the data,
+193
+make a deep copy of the vector. Throws if the post-processor is not of type Pose. */
+194
+std::vector<PoseSkeleton>
+const
+latestSkeletons
+()
+const
+195
+196
+//! Get access to the settings that were loaded from the zoo
+197
+std::vector<std::pair<std::string
+/* name */
+, std::string
+/* value */
+>>
+const
+zooSettings
+()
+const
+198
+199
+protected
+200
+void
+postInit
+()
+override
+201
+void
+preUninit
+()
+override
+202
+std::shared_ptr<PreProcessor>
+itsPreProcessor
+203
+std::shared_ptr<Network>
+itsNetwork
+204
+std::shared_ptr<PostProcessor>
+itsPostProcessor
+205
+void
+reloadZoo
+(std::string
+const
+& root, std::string
+const
+& filt, std::string
+const
+& zoofile);
+206
+207
+void
+onParamChange
+(pipeline::zooroot
+const
+& param, std::string
+const
+& val)
+override
+208
+void
+onParamChange
+(pipeline::zoo
+const
+& param, std::string
+const
+& val)
+override
+209
+void
+onParamChange
+(pipeline::filter
+const
+& param, pipeline::Filter
+const
+& val)
+override
+210
+void
+onParamChange
+(pipeline::pipe
+const
+& param, std::string
+const
+& val)
+override
+211
+void
+onParamChange
+(pipeline::nettype
+const
+& param, pipeline::NetType
+const
+& val)
+override
+212
+void
+onParamChange
+(pipeline::preproc
+const
+& param, pipeline::PreProc
+const
+& val)
+override
+213
+void
+onParamChange
+(pipeline::postproc
+const
+& param, pipeline::PostProc
+const
+& val)
+override
+214
+void
+onParamChange
+(pipeline::benchmark
+const
+& param,
+bool
+const
+& val)
+override
+215
+void
+onParamChange
+(pipeline::extramodels
+const
+& param,
+bool
+const
+& val)
+override
+216
+217
+void
+showInfo
+(std::vector<std::string>
+const
+& info,
+jevois::StdModule
+* mod,
+218
+jevois::RawImage
+* outimg,
+jevois::OptGUIhelper
+* helper,
+bool
+ovl,
+bool
+idle);
+219
+void
+asyncNetWait
+();
+220
+bool
+checkAsyncNetComplete
+();
+221
+#ifdef JEVOIS_PRO
+222
+// Allow user to peek into outputs. Caller must make sure helper is valid and idle is false
+223
+void
+showDataPeekWindow
+jevois::GUIhelper
+* helper,
+bool
+refresh);
+224
+#endif
+225
+226
+private
+227
+jevois::TimerOne
+itsTpre, itsTnet, itsTpost;
+228
+bool
+itsZooChanged =
+false
+229
+std::future<std::vector<cv::Mat>> itsNetFut;
+230
+std::array<std::string, 3> itsProcTimes {
+"PreProc: -"
+"Network: -"
+"PstProc: -"
+};
+231
+std::array<double, 3> itsProcSecs { 0.0, 0.0, 0.0 };
+232
+std::vector<cv::Mat> itsBlobs, itsOuts;
+233
+std::vector<vsi_nn_tensor_attr_t> itsInputAttrs;
+234
+std::vector<std::string> itsNetInfo, itsAsyncNetInfo;
+235
+std::string itsAsyncNetworkTime =
+"Network: -"
+236
+double
+itsAsyncNetworkSecs = 0.0;
+237
+double
+itsSecsSum = 0.0, itsSecsAvg = 0.0;
+238
+int
+itsSecsSumNum = 0;
+239
+bool
+itsPipeThrew =
+false
+240
+void
+scanZoo(std::filesystem::path
+const
+& zoofile, std::string
+const
+& filt, std::vector<std::string> & pipes,
+241
+std::string
+const
+& indent);
+242
+bool
+selectPipe(std::string
+const
+& zoofile, std::vector<std::string>
+const
+& tok);
+243
+void
+setZooParam(std::string
+const
+& name, std::string
+const
+& value, std::string
+const
+& zf,
+244
+cv::FileNode
+const
+& node);
+245
+std::vector<std::pair<std::string
+/* name */
+, std::string
+/* value */
+>> itsSettings;
+246
+int
+itsOutImgY = 0;
+247
+248
+std::map<std::string, size_t> itsAccelerators;
+249
+std::vector<double> itsPreStats, itsNetStats, itsPstStats;
+250
+bool
+itsStatsWarmup =
+true
+251
+#ifdef JEVOIS_PRO
+252
+bool
+itsShowDataPeek =
+false
+253
+int
+itsDataPeekOutIdx = 0;
+254
+bool
+itsDataPeekFreeze =
+false
+255
+std::string itsDataPeekStr;
+256
+#endif
+257
+};
+258
+259
+// namespace dnn
+260
+// namespace jevois
+Component.H
+JEVOIS_SHARE_PATH
+#define JEVOIS_SHARE_PATH
+Base path for shared files (e.g., neural network weights, etc)
+Definition
+Config.H:82
+Enum.H
+GUIhelper.H
+ObjDetect.H
+ObjReco.H
+PoseSkeleton.H
+Timer.H
+jevois::Component
+A component of a model hierarchy.
+Definition
+Component.H:182
+jevois::GUIhelper
+Helper class to assist modules in creating graphical and GUI elements.
+Definition
+GUIhelper.H:133
+jevois::RawImage
+A raw image as coming from a V4L2 Camera and/or being sent out to a USB Gadget.
+Definition
+RawImage.H:111
+jevois::StdModule
+Base class for a module that supports standardized serial messages.
+Definition
+Module.H:234
+jevois::TimerOne
+Simple one-shot timer class.
+Definition
+Timer.H:72
+jevois::dnn::Pipeline
+Neural processing pipeline.
+Definition
+Pipeline.H:148
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(preproc, PreProc, "Pre-Processor to use, usually set automatically " "by selecting a pipeline from the zoo file", PreProc::Blob, PreProc_Values, ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(nettype, NetType, "Network runtime framework to use, usually set " "automatically by selecting a pipeline from the zoo file", NetType::OpenCV, NetType_Values, ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::latestDetectionsOBB
+std::vector< ObjDetectOBB > const & latestDetectionsOBB() const
+Get the latest oriented bounded box (OBB) detection results, use with caution, not thread-safe.
+Definition
+Pipeline.C:184
+jevois::dnn::Pipeline::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(PostProc,(Classify)(Detect)(DetectOBB)(Segment)(YuNet)(Pose)(Python)(Stub))
+Enum.
+jevois::dnn::Pipeline::checkAsyncNetComplete
+bool checkAsyncNetComplete()
+Definition
+Pipeline.C:717
+jevois::dnn::Pipeline::showInfo
+void showInfo(std::vector< std::string > const &info, jevois::StdModule *mod, jevois::RawImage *outimg, jevois::OptGUIhelper *helper, bool ovl, bool idle)
+Definition
+Pipeline.C:1088
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(extramodels, bool, "If true, show all available models, including older " "ones, in the pipe list otherwise, only those not marked 'extramodel' " "in their model zoo definition", false, ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::itsNetwork
+std::shared_ptr< Network > itsNetwork
+Definition
+Pipeline.H:203
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(statsfile, std::string, "Append pre/net/post timing statistics in HTML table format " "to the specified file if not empty. If path is relative, it is to " JEVOIS_SHARE_PATH, "", ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(processing, Processing, "Type of processing: Sync runs pre-processing, " "network, and post-processing sequentially for every frame. Use for fast " "networks only, otherwise it will slow down the GUI... Async runs the network in " "a thread and should be used for networks slower than the camera framerate.", Processing::Async, Processing_Values, ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(filter, Filter, "Filter to possibly only show as options in " "the 'pipe' parameter some class of models from the zoo", Filter::All, Filter_Values, ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::preUninit
+void preUninit() override
+Called before all sub-Components are uninit()ed.
+Definition
+Pipeline.C:149
+jevois::dnn::Pipeline::showDataPeekWindow
+void showDataPeekWindow(jevois::GUIhelper *helper, bool refresh)
+Definition
+Pipeline.C:1123
+jevois::dnn::Pipeline::asyncNetWait
+void asyncNetWait()
+Definition
+Pipeline.C:202
+jevois::dnn::Pipeline::latestRecognitions
+std::vector< ObjReco > const & latestRecognitions() const
+Get the latest recognition results, use with caution, not thread-safe.
+Definition
+Pipeline.C:163
+jevois::dnn::Pipeline::process
+void process(jevois::RawImage const &inimg, jevois::StdModule *mod, jevois::RawImage *outimg, jevois::OptGUIhelper *helper, bool idle=false)
+Process an input image, send results to serial/image/gui.
+Definition
+Pipeline.C:732
+jevois::dnn::Pipeline::onParamChange
+void onParamChange(pipeline::zooroot const &param, std::string const &val) override
+Definition
+Pipeline.C:227
+jevois::dnn::Pipeline::~Pipeline
+virtual ~Pipeline()
+Destructor.
+Definition
+Pipeline.C:156
+jevois::dnn::Pipeline::ready
+bool ready() const
+Returns true when all three of preproc, net, and postproc are ready.
+Definition
+Pipeline.C:711
+jevois::dnn::Pipeline::zooSettings
+std::vector< std::pair< std::string, std::string > > const & zooSettings() const
+Get access to the settings that were loaded from the zoo.
+Definition
+Pipeline.C:562
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(pipe, std::string, "Pipeline to use, which should correspond to a " "top-level entry in the zoo file. Network execution types are: OpenCV: " "on CPU, NPU: on JeVois NPU accelerator, TPU: on Coral Edge TPU if " "available, VPU: on MyriadX VPU if available, NPUX: on NPU via TimVX " "OpenCV extension, VPUX: on CPU via ARM-Compute OpenVino emulation " "of VPU, and SPU: on Hailo8 SPU if available.", "", ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(Processing,(Sync)(Async))
+Enum.
+jevois::dnn::Pipeline::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(Filter,(All)(OpenCV)(TPU)(NPU)(VPU)(VPUX)(NPUX)(SPU)(ORT))
+Enum.
+jevois::dnn::Pipeline::freeze
+void freeze(bool doit)
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+Pipeline.C:130
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(zoo, std::string, "Filename for neural network zoo file (.yml). " "If not absolute, it is relative to zooroot", "models.yml", ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::latestSkeletons
+std::vector< PoseSkeleton > const & latestSkeletons() const
+Get the latest skeletons, use with caution, not thread-safe.
+Definition
+Pipeline.C:193
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(postproc, PostProc, "Post-Processor to use, usually set automatically " "by selecting a pipeline from the zoo file", PostProc::Classify, PostProc_Values, ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(PreProc,(Blob)(Python))
+Enum.
+jevois::dnn::Pipeline::itsPostProcessor
+std::shared_ptr< PostProcessor > itsPostProcessor
+Definition
+Pipeline.H:204
+jevois::dnn::Pipeline::latestDetections
+std::vector< ObjDetect > const & latestDetections() const
+Get the latest detection results, use with caution, not thread-safe.
+Definition
+Pipeline.C:172
+jevois::dnn::Pipeline::reloadZoo
+void reloadZoo(std::string const &root, std::string const &filt, std::string const &zoofile)
+jevois::dnn::Pipeline::itsPreProcessor
+std::shared_ptr< PreProcessor > itsPreProcessor
+Definition
+Pipeline.H:202
+jevois::dnn::Pipeline::postInit
+void postInit() override
+Called after all sub-Components are init()ed.
+Definition
+Pipeline.C:142
+jevois::dnn::Pipeline::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(NetType,(OpenCV)(ORT)(NPU)(TPU)(SPU)(Python))
+Enum.
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(paramwarn, bool, "Issue warning if parameters are specified in the zoo file for " "a pipeline, but the pipeline's component is not using them. Warnings appear " "in the console when the pipeline is loaded.", true, ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::onParamChange
+void onParamChange(pipeline::filter const &param, pipeline::Filter const &val) override
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(overlay, bool, "Show some pipeline info as an overlay over output or GUI video", true, ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(benchmark, bool, "Cycle through all networks specified by filter and, " "for each, run it for a while and append pre/net/post timing statistics " "in HTML table format to " JEVOIS_SHARE_PATH "/benchmark.html", false, ParamCateg)
+Parameter.
+jevois::dnn::Pipeline::JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(zooroot, std::string, "Path where to find zoo files (.yml). " "If not absolute, it is relative to this module's path", JEVOIS_SHARE_PATH "/dnn", ParamCateg)
+Parameter.
+jevois::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(CameraSensor,(any)(imx290)(os08a10)(ar0234))
+Enum for different sensor models.
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+jevois::ParameterCategory
+A category to which multiple ParameterDef definitions can belong.
+Definition
+ParameterDef.H:34
+include
+jevois
+DNN
+Pipeline.H
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/classjevois_1_1dnn_1_1Pipeline.html
+TITRE: JeVois: jevois::dnn::Pipeline Class Reference
+================================================================================
+
+Neural processing pipeline.
+A neural processing pipeline in JeVois consists of:
+pre-processing an input image to extract one or more blobs used as input tensors to a deep neural network
+processing the input blobs through a deep network to obtain output blobs
+post-processing the output blobs to display results and send serial messages
+A pipeline is typically configured by parsing a YAML config file (zoo file) that determines what kind of pre-processing, network, and post-processing to use, and that sets the parameters for those.
+Definition at line
+143
+of file
+Pipeline.H
+
+
+================================================================================
+URL: http://jevois.org/doc/NetworkNPU_8C_source.html
+TITRE: JeVois: src/jevois/DNN/NetworkNPU.C Source File
+================================================================================
+
+JeVois: src/jevois/DNN/NetworkNPU.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+NetworkNPU.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#ifdef JEVOIS_PLATFORM_PRO
+19
+20
+#include <
+jevois/DNN/NetworkNPU.H
+21
+#include <
+jevois/Util/Utils.H
+22
+#include <
+jevois/DNN/Utils.H
+23
+#include <
+jevois/Core/DynamicLoader.H
+24
+#include <
+jevois/Debug/Timer.H
+25
+#include <vsi_nn_version.h>
+26
+#include <filesystem>
+27
+28
+#define VNN_APP_DEBUG (FALSE)
+29
+30
+/*-------------------------------------------
+31
+Macros
+32
+-------------------------------------------*/
+33
+34
+#define NEW_VXNODE(_node, _type, _in, _out, _uid) do {          \
+35
+_node = vsi_nn_AddNode(itsGraph, _type, _in, _out, NULL);   \
+36
+_node->uid = (uint32_t)_uid;                                \
+37
+if (NULL == _node) LFATAL("NEW_VXNODE failed");             \
+38
+} while(0)
+39
+40
+#define NEW_VIRTUAL_TENSOR(_id, _attr, _dtype) do {                     \
+41
+memset(_attr.size, 0, VSI_NN_MAX_DIM_NUM * sizeof(vsi_size_t));     \
+42
+_attr.dim_num = VSI_NN_DIM_AUTO;                                    \
+43
+_attr.vtl = !VNN_APP_DEBUG;                                         \
+44
+_attr.is_const = FALSE;                                             \
+45
+_attr.dtype.vx_type = _dtype;                                       \
+46
+_id = vsi_nn_AddTensor(itsGraph, VSI_NN_TENSOR_ID_AUTO, & _attr, NULL); \
+47
+if (VSI_NN_TENSOR_ID_NA == _id) LFATAL("NEW_VIRTUAL_TENSOR failed"); \
+48
+} while(0)
+49
+50
+// Set const tensor dims out of this macro.
+51
+#define NEW_CONST_TENSOR(_id, _attr, _dtype, _ofst, _size) do {         \
+52
+data = load_data(fp, _ofst, _size);                                 \
+53
+_attr.vtl = FALSE;                                                  \
+54
+_attr.is_const = TRUE;                                              \
+55
+_attr.dtype.vx_type = _dtype;                                       \
+56
+_id = vsi_nn_AddTensor(itsGraph, VSI_NN_TENSOR_ID_AUTO, & _attr, data); \
+57
+free(data);                                                         \
+58
+if (VSI_NN_TENSOR_ID_NA == _id) LFATAL("NEW_CONST_TENSOR failed");  \
+59
+} while(0)
+60
+61
+// Set generic tensor dims out of this macro.
+62
+#define NEW_NORM_TENSOR(_id, _attr, _dtype) do {                        \
+63
+_attr.vtl = FALSE;                                                  \
+64
+_attr.is_const = FALSE;                                             \
+65
+_attr.dtype.vx_type = _dtype;                                       \
+66
+_id = vsi_nn_AddTensor(itsGraph, VSI_NN_TENSOR_ID_AUTO, & _attr, NULL); \
+67
+if (VSI_NN_TENSOR_ID_NA == _id) LFATAL("NEW_NORM_TENSOR failed");   \
+68
+} while(0)
+69
+70
+// Set generic tensor dims out of this macro.
+71
+#define NEW_NORM_TENSOR_FROM_HANDLE(_id, _attr, _dtype) do {            \
+72
+_attr.vtl = FALSE;                                                  \
+73
+_attr.is_const = FALSE;                                             \
+74
+_attr.dtype.vx_type = _dtype;                                       \
+75
+_id = vsi_nn_AddTensorFromHandle(itsGraph, VSI_NN_TENSOR_ID_AUTO, & _attr, NULL); \
+76
+if (VSI_NN_TENSOR_ID_NA == _id) LFATAL("NEW_NORM_TENSOR_FROM_HANDLE failed"); \
+77
+} while(0)
+78
+79
+// From code generated during model conversion (vnn_global.h):
+80
+typedef
+struct
+81
+uint32_t
+graph_input_idx
+82
+vsi_nn_preprocess_base_t *
+preprocesses
+83
+uint32_t
+preprocess_count
+84
+vsi_nn_preprocess_map_element_t
+85
+86
+87
+typedef
+struct
+88
+uint32_t
+graph_output_idx
+89
+vsi_nn_postprocess_base_t *
+postprocesses
+90
+uint32_t
+postprocess_count
+91
+vsi_nn_postprocess_map_element_t
+92
+93
+#ifndef VSI_SIZE_T
+94
+typedef
+uint32_t
+vsi_size_t
+95
+typedef
+int32_t
+vsi_ssize_t
+96
+#endif
+97
+98
+// ####################################################################################################
+99
+std::vector<vsi_nn_tensor_attr_t>
+jevois::dnn::NetworkNPU::inputShapes
+()
+100
+101
+// If using a library, get the tensors from the graph after it has been loaded:
+102
+if
+(library::get().empty() ==
+false
+103
+104
+if
+ready
+() ==
+false
+LFATAL
+"Network is not ready"
+);
+105
+std::vector<vsi_nn_tensor_attr_t> ret;
+106
+for
+(uint32_t i = 0; i < itsGraph->input.num; ++i)
+107
+108
+ret.emplace_back(vsi_nn_GetTensor(itsGraph, itsGraph->input.tensors[i])->attr);
+109
+110
+// When loading a net from library obtained with the Khadas convert tool, input fmt seems to always be NCHW even
+111
+// when the dims disagree... So fix that up here to avoid confusing the pre-processor:
+112
+if
+(library::get().empty() ==
+false
+&& ret.back().dim_num >= 3)
+113
+114
+vsi_nn_tensor_attr_t & attr = ret.back();
+115
+switch
+(attr.dtype.fmt)
+116
+117
+case
+VSI_NN_DIM_FMT_NCHW:
+118
+if
+(attr.size[2]
+/* C */
+> attr.size[0]
+/* W */
+) attr.dtype.fmt = VSI_NN_DIM_FMT_NHWC;
+119
+break
+120
+case
+VSI_NN_DIM_FMT_NHWC:
+121
+if
+(attr.size[0]
+/* C */
+> attr.size[1]
+/* W */
+) attr.dtype.fmt = VSI_NN_DIM_FMT_NCHW;
+122
+break
+123
+default
+break
+124
+125
+126
+127
+return
+ret;
+128
+129
+130
+// Not using library, tensors have been specified by user:
+131
+return
+jevois::dnn::parseTensorSpecs
+(intensors::get());
+132
+133
+134
+// ####################################################################################################
+135
+std::vector<vsi_nn_tensor_attr_t>
+jevois::dnn::NetworkNPU::outputShapes
+()
+136
+137
+// If using a library, get the tensors from the graph after it has been loaded:
+138
+if
+(library::get().empty() ==
+false
+139
+140
+if
+(ready() ==
+false
+LFATAL
+"Network is not ready"
+);
+141
+std::vector<vsi_nn_tensor_attr_t> ret;
+142
+for
+(uint32_t i = 0; i < itsGraph->output.num; ++i)
+143
+ret.emplace_back(vsi_nn_GetTensor(itsGraph, itsGraph->output.tensors[i])->attr);
+144
+return
+ret;
+145
+146
+147
+// Not using library, tensors have been specified by user:
+148
+return
+jevois::dnn::parseTensorSpecs
+(outtensors::get());
+149
+150
+151
+// ####################################################################################################
+152
+void
+jevois::dnn::NetworkNPU::create_tensors(std::vector<vsi_nn_tensor_attr_t> & attrs, vsi_nn_node_t * node,
+bool
+isin)
+153
+154
+if
+(attrs.empty())
+LFATAL
+"Invalid empty "
+<< (isin ?
+"in"
+"out"
+) <<
+"tensors specification"
+);
+155
+156
+for
+int
+tnum = 0; vsi_nn_tensor_attr_t & attr : attrs)
+157
+158
+// Allocate the tensor:
+159
+vsi_nn_tensor_id_t id;
+160
+NEW_NORM_TENSOR
+id
+, attr, attr.dtype.vx_type);
+161
+162
+// Connect the tensor:
+163
+if
+(isin)
+164
+165
+node->input.tensors[tnum] = id;
+166
+itsGraph->input.tensors[tnum] = id;
+167
+LINFO
+"Input tensor "
+<< tnum <<
+": "
+<<
+jevois::dnn::attrstr
+(attr));
+168
+169
+else
+170
+171
+node->output.tensors[tnum] = id;
+172
+itsGraph->output.tensors[tnum] = id;
+173
+LINFO
+"Output tensor "
+<< tnum <<
+": "
+<<
+jevois::dnn::attrstr
+(attr));
+174
+175
+++tnum;
+176
+177
+178
+179
+// ####################################################################################################
+180
+jevois::dnn::NetworkNPU::~NetworkNPU
+()
+181
+182
+waitBeforeDestroy();
+183
+if
+(itsGraph) vsi_nn_ReleaseGraph(&itsGraph);
+184
+if
+(itsCtx) vsi_nn_ReleaseContext(&itsCtx);
+185
+186
+// itsLibLoader destructor will close the library if we opened one.
+187
+188
+189
+// ####################################################################################################
+190
+void
+jevois::dnn::NetworkNPU::freeze
+bool
+doit)
+191
+192
+dataroot::freeze(doit);
+193
+model::freeze(doit);
+194
+library::freeze(doit);
+195
+intensors::freeze(doit);
+196
+outtensors::freeze(doit);
+197
+ovxver::freeze(doit);
+198
+jevois::dnn::Network::freeze
+(doit);
+// base class parameters
+199
+200
+201
+// ####################################################################################################
+202
+void
+jevois::dnn::NetworkNPU::load
+()
+203
+204
+// Need to nuke the network first if it exists or we could run out of RAM:
+205
+if
+(itsGraph) { vsi_nn_ReleaseGraph(&itsGraph); itsGraph =
+nullptr
+; }
+206
+207
+// Create context if needed:
+208
+if
+(itsCtx == 0) itsCtx = vsi_nn_CreateContext();
+209
+210
+// Get NBG file name:
+211
+std::string
+const
+m =
+jevois::absolutePath
+(dataroot::get(), model::get());
+212
+213
+// Check that the file does exist so we avoid cryptic errors if not:
+214
+if
+(std::filesystem::exists(m) ==
+false
+LFATAL
+"Missing network file "
+<< m <<
+" -- ABORT"
+);
+215
+216
+// Use a library to instantiate the graph, or parse tensor specs from intensors and outtensors and instantiate the
+217
+// graph from those?
+218
+std::string libname = library::get();
+219
+if
+(libname.empty())
+220
+221
+// Parse input and output tensor specs:
+222
+std::vector<vsi_nn_tensor_attr_t> iattrs =
+jevois::dnn::parseTensorSpecs
+(intensors::get());
+223
+std::vector<vsi_nn_tensor_attr_t> oattrs =
+jevois::dnn::parseTensorSpecs
+(outtensors::get());
+224
+size_t
+const
+numin = iattrs.size();
+225
+size_t
+const
+numout = oattrs.size();
+226
+227
+// Create graph:
+228
+itsGraph = vsi_nn_CreateGraph(itsCtx, numin + numout * 2, 1);
+229
+if
+(itsGraph == NULL)
+LFATAL
+"Graph creation failed"
+);
+230
+231
+if
+(ovxver::get().empty() ==
+false
+232
+233
+std::vector<std::string> tok =
+jevois::split
+(ovxver::get(),
+"\\."
+);
+234
+if
+(tok.size() != 3)
+LFATAL
+"Malformed ovxver version ["
+<< ovxver::get() <<
+"] -- should be x.y.z"
+);
+235
+vsi_nn_SetGraphVersion(itsGraph, std::stoi(tok[0]), std::stoi(tok[1]), std::stoi(tok[2]));
+236
+237
+else
+238
+vsi_nn_SetGraphVersion(itsGraph, VSI_NN_VERSION_MAJOR, VSI_NN_VERSION_MINOR, VSI_NN_VERSION_PATCH);
+239
+240
+vsi_nn_SetGraphInputs(itsGraph, NULL, numin);
+241
+vsi_nn_SetGraphOutputs(itsGraph, NULL, numout);
+242
+243
+LINFO
+"Created graph with "
+<< numin <<
+" inputs and "
+<< numout <<
+" outputs"
+);
+244
+245
+// Initialize node:
+246
+vsi_nn_node_t * node[1];
+247
+NEW_VXNODE
+(node[0], VSI_NN_OP_NBG, numin, numout, 0);
+248
+node[0]->nn_param.nbg.type = VSI_NN_NBG_FILE;
+249
+node[0]->nn_param.nbg.url = m.c_str();
+250
+251
+// Create input and output tensors and attach them to the node and graph:
+252
+create_tensors(oattrs, node[0],
+false
+);
+253
+create_tensors(iattrs, node[0],
+true
+);
+254
+255
+// Setup the graph:
+256
+auto
+status = vsi_nn_SetupGraph(itsGraph, FALSE);
+257
+if
+(status != VSI_SUCCESS)
+258
+LFATAL
+"Failed to setup graph -- Possible causes:\n"
+259
+"- Incorrect intensors/outtensors in your YAML file?\n"
+260
+"- Wrong NPU model? Check --optimize VIPNANOQI_PID0X88\n"
+261
+"- Wrong NPU SDK version? Running ovxlib "
+<<
+262
+VSI_NN_VERSION_MAJOR <<
+'.'
+<< VSI_NN_VERSION_MINOR <<
+'.'
+<< VSI_NN_VERSION_PATCH);
+263
+264
+else
+265
+266
+// Using a library. It should contain 2 functions: vnn_CreateModel() which we will use, and vnn_ReleaseModel() which
+267
+// we will not use as it does the same as our destructor:
+268
+std::string
+const
+libpath =
+jevois::absolutePath
+(dataroot::get(), libname);
+269
+if
+(std::filesystem::exists(libpath) ==
+false
+LFATAL
+"Missing library file "
+<< libpath <<
+" -- ABORT"
+);
+270
+itsLibLoader.reset(
+new
+jevois::DynamicLoader
+(libpath,
+true
+/* close on destroy */
+));
+271
+272
+typedef
+vsi_nn_graph_t*(signature)(
+char
+const
+/* data_file_name */
+273
+vsi_nn_context_t
+/* in_ctx */
+274
+vsi_nn_preprocess_map_element_t
+const
+/* pre_process_map */
+275
+uint32_t
+/* pre_process_map_count */
+276
+vsi_nn_postprocess_map_element_t
+const
+/* post_process_map */
+277
+uint32_t
+/* post_process_map_count */
+);
+278
+279
+auto
+createmodel = itsLibLoader->load<signature>(
+"vnn_CreateModel"
+);
+280
+281
+itsGraph = createmodel(m.c_str(), itsCtx,
+nullptr
+, 0,
+nullptr
+, 0);
+282
+// vnn_GetPreProcessMap(), vnn_GetPreProcessMapCount(),
+283
+// vnn_GetPostProcessMap(), vnn_GetPostProcessMapCount());
+284
+285
+if
+(itsGraph == NULL)
+286
+LFATAL
+"Graph creation using library failed:\n"
+287
+"- Wrong NPU model? Use kboard=VIM3 in convert\n"
+288
+"- Wrong NPU SDK version? Running ovxlib "
+<<
+289
+VSI_NN_VERSION_MAJOR <<
+'.'
+<< VSI_NN_VERSION_MINOR <<
+'.'
+<< VSI_NN_VERSION_PATCH);
+290
+LINFO
+"Graph successfully created using library."
+);
+291
+292
+// Show the inputs and outputs of the loaded net:
+293
+for
+(uint32_t i = 0; i < itsGraph->input.num; ++i)
+294
+LINFO
+"Input tensor "
+<< i <<
+": "
+<<
+295
+jevois::dnn::attrstr
+(vsi_nn_GetTensor(itsGraph, itsGraph->input.tensors[i])->attr));
+296
+297
+for
+(uint32_t i = 0; i < itsGraph->output.num; ++i)
+298
+LINFO
+"Output tensor "
+<< i <<
+": "
+<<
+299
+jevois::dnn::attrstr
+(vsi_nn_GetTensor(itsGraph, itsGraph->output.tensors[i])->attr));
+300
+301
+302
+LINFO
+"Graph ready."
+);
+303
+304
+if
+(verifygraph::get())
+305
+306
+auto
+status = vsi_nn_VerifyGraph(itsGraph);
+307
+if
+(status != VSI_SUCCESS)
+LFATAL
+"Graph verification failed -- \n"
+308
+"check that intensors/outtensors specs exactly match\n"
+309
+"those provided during model conversion."
+);
+310
+else
+LINFO
+"Graph verification ok"
+);
+311
+312
+313
+314
+// ####################################################################################################
+315
+namespace
+316
+317
+// Make a function to dequantize one tensor. We place dequantized tensor i into o and return an info string:
+318
+// Remember to use std::ref around the cv::Mat arg to pass it by reference.
+319
+static
+std::function<std::string(vsi_nn_graph_t *,
+size_t
+, cv::Mat &)>
+320
+dequantize_one = [](vsi_nn_graph_t * graph,
+size_t
+i, cv::Mat &
+) -> std::string
+321
+322
+vsi_nn_tensor_t * ot = vsi_nn_GetTensor(graph, graph->output.tensors[i]);
+323
+vsi_nn_tensor_attr_t
+const
+& oattr = ot->attr;
+324
+uint8_t * tensor_data = (uint8_t *)vsi_nn_ConvertTensorToData(graph, ot);
+325
+326
+try
+327
+328
+cv::Mat rawout =
+jevois::dnn::attrmat
+(oattr, tensor_data);
+329
+jevois::dnn::dequantize
+(rawout, oattr);
+330
+vsi_nn_Free(tensor_data);
+331
+return
+"- Out "
++ std::to_string(i) +
+": "
+jevois::dnn::attrstr
+(oattr) +
+" -> 32F"
+332
+333
+catch
+(...) { vsi_nn_Free(tensor_data);
+jevois::warnAndRethrowException
+(); }
+334
+};
+335
+336
+337
+// ####################################################################################################
+338
+std::vector<cv::Mat>
+jevois::dnn::NetworkNPU::doprocess
+(std::vector<cv::Mat>
+const
+& blobs,
+339
+std::vector<std::string> & info)
+340
+341
+if
+(blobs.size() != itsGraph->input.num)
+342
+LFATAL
+"Received "
+<< blobs.size() <<
+" blobs, but network has "
+<< itsGraph->input.num <<
+" inputs"
+);
+343
+344
+static
+jevois::TimerOne
+intimer(
+"Send inputs"
+);
+345
+static
+jevois::TimerOne
+infertimer(
+"Inference"
+);
+346
+static
+jevois::TimerOne
+dqtimer(
+"Dequantize"
+);
+347
+348
+intimer.
+start
+();
+349
+for
+size_t
+b = 0; b < blobs.size(); ++b)
+350
+351
+cv::Mat
+const
+& blob = blobs[b];
+352
+353
+// Get the input tensor:
+354
+vsi_nn_tensor_t * tensor = vsi_nn_GetTensor(itsGraph, itsGraph->input.tensors[b]);
+355
+if
+(tensor ==
+nullptr
+LFATAL
+"Network does not have input tensor "
+<< b);
+356
+auto
+const
+& iattr = tensor->attr;
+357
+358
+// Check that blob and tensor are a complete match:
+359
+if
+jevois::dnn::attrmatch
+(iattr, blob) ==
+false
+360
+LFATAL
+"Input "
+<< b <<
+": received "
+<<
+jevois::dnn::shapestr
+(blob) <<
+361
+" but want: "
+<<
+jevois::dnn::shapestr
+(iattr));
+362
+363
+// Copy blob data to tensor:
+364
+auto
+status = vsi_nn_CopyDataToTensor(itsGraph, tensor, (uint8_t *)blob.data);
+365
+if
+(status != VSI_SUCCESS)
+LFATAL
+"Error setting input tensor: "
+<< status);
+366
+367
+info.emplace_back(
+"- In "
++ std::to_string(b) +
+": "
+jevois::dnn::attrstr
+(iattr));
+368
+369
+info.emplace_back(intimer.
+stop
+());
+370
+371
+// Ok, let's run the network:
+372
+infertimer.
+start
+();
+373
+auto
+status = vsi_nn_RunGraph(itsGraph);
+374
+if
+(status != VSI_SUCCESS)
+LFATAL
+"Error running graph: "
+<< status);
+375
+info.emplace_back(infertimer.
+stop
+());
+376
+377
+// Collect the outputs, and possibly dequantize them:
+378
+size_t
+const
+numouts = itsGraph->output.num;
+379
+if
+(numouts == 0)
+return
+std::vector<cv::Mat>();
+380
+381
+std::vector<cv::Mat> outs(numouts);
+382
+if
+(dequant::get())
+383
+384
+// Dequantize and store, processing all outputs in parallel:
+385
+dqtimer.
+start
+();
+386
+387
+// Avoid threading overhead if only one output:
+388
+if
+(numouts == 1)
+389
+info.emplace_back(dequantize_one(itsGraph, 0, std::ref(outs[0])));
+390
+else
+391
+392
+// Dequantize multiple outputs in parallel:
+393
+std::vector<std::future<std::string>> fvec;
+394
+395
+for
+(uint32_t i = 0; i < numouts; ++i)
+396
+fvec.emplace_back(
+jevois::async
+(dequantize_one, itsGraph, i, std::ref(outs[i])));
+397
+398
+// Use joinall() to get() all futures and throw a single consolidated exception if any thread threw:
+399
+std::vector<std::string> retvec =
+jevois::joinall
+(fvec);
+400
+401
+// Collect all the info strings returned:
+402
+info.insert(info.end(), std::make_move_iterator(retvec.begin()), std::make_move_iterator(retvec.end()));
+403
+404
+info.emplace_back(dqtimer.
+stop
+());
+405
+406
+else
+407
+408
+// No dequantization simply copy the raw outputs into a vector of cv::Mat:
+409
+for
+(uint32_t i = 0; i < numouts; ++i)
+410
+411
+vsi_nn_tensor_t * ot = vsi_nn_GetTensor(itsGraph, itsGraph->output.tensors[i]);
+412
+vsi_nn_tensor_attr_t
+const
+& oattr = ot->attr;
+413
+uint8_t * tensor_data = (uint8_t *)vsi_nn_ConvertTensorToData(itsGraph, ot);
+414
+415
+try
+416
+417
+cv::Mat rawout =
+jevois::dnn::attrmat
+(oattr, tensor_data);
+418
+outs[i] = rawout.clone();
+419
+info.emplace_back(
+"- Out "
++ std::to_string(i) +
+": "
+jevois::dnn::attrstr
+(oattr));
+420
+421
+catch
+(...) { vsi_nn_Free(tensor_data);
+jevois::warnAndRethrowException
+(); }
+422
+423
+vsi_nn_Free(tensor_data);
+424
+425
+426
+427
+return
+outs;
+428
+429
+430
+#endif
+// JEVOIS_PLATFORM_PRO
+Utils.H
+DynamicLoader.H
+#define o
+Definition
+Font10x20.C:6
+NEW_NORM_TENSOR
+#define NEW_NORM_TENSOR(_id, _attr, _dtype)
+Definition
+NetworkNPU.C:62
+NEW_VXNODE
+#define NEW_VXNODE(_node, _type, _in, _out, _uid)
+Definition
+NetworkNPU.C:34
+vsi_ssize_t
+int32_t vsi_ssize_t
+Definition
+NetworkNPU.C:95
+vsi_size_t
+uint32_t vsi_size_t
+Definition
+NetworkNPU.C:94
+NetworkNPU.H
+Timer.H
+Utils.H
+jevois::DynamicLoader
+Class to open shared object (.so) files and load functions contained in them.
+Definition
+DynamicLoader.H:70
+jevois::TimerOne
+Simple one-shot timer class.
+Definition
+Timer.H:72
+jevois::TimerOne::stop
+std::string stop(double *seconds)
+End a time measurement period, report time spent as: 'prefix: ms (fps)' where % is replaced by values...
+Definition
+Timer.C:162
+jevois::TimerOne::start
+void start()
+Start a time measurement period.
+Definition
+Timer.C:156
+jevois::dnn::NetworkNPU::inputShapes
+virtual std::vector< vsi_nn_tensor_attr_t > inputShapes() override
+Get shapes of all input tensors.
+Definition
+NetworkNPU.C:99
+jevois::dnn::NetworkNPU::outputShapes
+virtual std::vector< vsi_nn_tensor_attr_t > outputShapes() override
+Get shapes of all output tensors.
+Definition
+NetworkNPU.C:135
+jevois::dnn::NetworkNPU::~NetworkNPU
+virtual ~NetworkNPU()
+Destructor.
+Definition
+NetworkNPU.C:180
+jevois::dnn::NetworkNPU::doprocess
+std::vector< cv::Mat > doprocess(std::vector< cv::Mat > const &blobs, std::vector< std::string > &info) override
+Process input blobs and obtain output blobs.
+Definition
+NetworkNPU.C:338
+jevois::dnn::NetworkNPU::freeze
+void freeze(bool doit) override
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+NetworkNPU.C:190
+jevois::dnn::NetworkNPU::load
+void load() override
+Load from disk.
+Definition
+NetworkNPU.C:202
+jevois::dnn::Network::ready
+bool ready()
+Returns true when network is ready to run (loaded and initialized)
+Definition
+Network.C:165
+jevois::dnn::Network::freeze
+virtual void freeze(bool doit)
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+Network.C:32
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+jevois::warnAndRethrowException
+void warnAndRethrowException(std::string const &prefix="")
+Convenience function to catch an exception, issue some LERROR (depending on type),...
+Definition
+Log.C:203
+LINFO
+#define LINFO(msg)
+Convenience macro for users to print out console or syslog messages, INFO level.
+Definition
+Log.H:194
+jevois::dnn::parseTensorSpecs
+std::vector< vsi_nn_tensor_attr_t > parseTensorSpecs(std::string const &specs)
+Parse tensor specification.
+Definition
+Utils.C:428
+jevois::dnn::attrstr
+std::string attrstr(vsi_nn_tensor_attr_t const &attr)
+Get a string describing the specs of a tensor, including quantification specs (not provided by shapes...
+Definition
+Utils.C:553
+jevois::dnn::attrmat
+cv::Mat attrmat(vsi_nn_tensor_attr_t const &attr, void *dataptr=nullptr)
+Construct a cv::Mat from attr and possibly data pointer.
+Definition
+Utils.C:512
+jevois::dnn::dequantize
+cv::Mat dequantize(cv::Mat const &m, vsi_nn_tensor_attr_t const &attr)
+Dequantize an output to float32 according to the quantization spec in attr.
+Definition
+Utils.C:888
+jevois::dnn::shapestr
+std::string shapestr(cv::Mat const &m)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional cv::Mat with data type TYPE.
+Definition
+Utils.C:126
+jevois::dnn::attrmatch
+bool attrmatch(vsi_nn_tensor_attr_t const &attr, cv::Mat const &blob)
+Check that a cv::Mat blob matches exactly the spec of an attr.
+Definition
+Utils.C:802
+jevois::joinall
+std::vector< T > joinall(std::vector< std::future< T > > &fvec, bool multiline=true)
+Collect results from several async threads that are all returning a T result.
+jevois::async
+std::future< std::invoke_result_t< std::decay_t< Function >, std::decay_t< Args >... > > async(Function &&f, Args &&... args)
+Async execution using a thread pool.
+jevois::absolutePath
+std::filesystem::path absolutePath(std::filesystem::path const &root, std::filesystem::path const &path)
+Compute an absolute path from two paths.
+Definition
+Utils.C:386
+jevois::split
+std::vector< std::string > split(std::string const &input, std::string const &regex="\\s+")
+Split string into vector of tokens using a regex to specify what to split on; default regex splits by...
+Definition
+Utils.C:270
+vsi_nn_postprocess_map_element_t
+Definition
+NetworkNPU.C:87
+vsi_nn_postprocess_map_element_t::postprocess_count
+uint32_t postprocess_count
+Definition
+NetworkNPU.C:90
+vsi_nn_postprocess_map_element_t::graph_output_idx
+uint32_t graph_output_idx
+Definition
+NetworkNPU.C:88
+vsi_nn_postprocess_map_element_t::postprocesses
+vsi_nn_postprocess_base_t * postprocesses
+Definition
+NetworkNPU.C:89
+vsi_nn_preprocess_map_element_t
+Definition
+NetworkNPU.C:80
+vsi_nn_preprocess_map_element_t::preprocesses
+vsi_nn_preprocess_base_t * preprocesses
+Definition
+NetworkNPU.C:82
+vsi_nn_preprocess_map_element_t::preprocess_count
+uint32_t preprocess_count
+Definition
+NetworkNPU.C:83
+vsi_nn_preprocess_map_element_t::graph_input_idx
+uint32_t graph_input_idx
+Definition
+NetworkNPU.C:81
+src
+jevois
+DNN
+NetworkNPU.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+

@@ -1,0 +1,20 @@
+# Configuration pour YOLO avec IDs aléatoires - Version Python Pure compatible MultiDNN2
+AAA-yolov7-randomid-python:
+  comment: "YOLOv7-tiny avec IDs aléatoires - Python pur compatible MultiDNN2"
+  url: "MULTIDN2_COMPATIBLE"
+  model: "npu/detection/yolov7-tiny-512x288.nb"
+  
+  # Post-processeur Python pur (sans PyPostYOLO)
+  postproc: Python
+  pypost: "pydnn/post/PyPostYoloRandomID_PurePython.py"
+  
+  # Configuration YOLO standard
+  detecttype: RAWYOLO
+  intensors: "NCHW:8U:1x3x288x512:AA:0.003921568393707275:0"
+  outtensors: "NCHW:8U:1x255x36x64:AA:0.003916095942258835:0, NCHW:8U:1x255x18x32:AA:0.00392133416607976:0, NCHW:8U:1x255x9x16:AA:0.003921062219887972:0"
+  anchors: "10,13, 16,30, 33,23;   30,61, 62,45, 59,119;   116,90, 156,198, 373,326"
+  scalexy: 2.0
+  sigmoid: false
+  classes: "dnn/labels/coco-labels.txt"
+  cthresh: 20
+  nms: 45

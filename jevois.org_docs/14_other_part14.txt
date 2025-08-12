@@ -1,0 +1,2039 @@
+DOCUMENTATION JEVOIS - PARTIE 14
+Catégorie principale: OTHER
+Nombre de documents: 1
+================================================================================
+
+
+================================================================================
+URL: http://jevois.org/doc/Component_8C_source.html
+TITRE: JeVois: src/jevois/Component/Component.C Source File
+================================================================================
+
+JeVois: src/jevois/Component/Component.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+Component.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2016 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+// This code is inspired by the Neuromorphic Robotics Toolkit (http://nrtkit.org)
+19
+20
+#include <
+jevois/Debug/Log.H
+21
+#include <
+jevois/Component/Component.H
+22
+#include <
+jevois/Component/Manager.H
+23
+#include <
+jevois/Component/Parameter.H
+24
+#include <
+jevois/Core/Engine.H
+25
+#include <
+jevois/Util/Utils.H
+26
+#include <
+jevois/Core/UserInterface.H
+27
+28
+#include <fstream>
+29
+#include <algorithm>
+// for std::all_of
+30
+31
+// ######################################################################
+32
+jevois::Component::Component
+(std::string
+const
+& instanceName) :
+33
+itsInstanceName(instanceName), itsInitialized(false), itsParent(nullptr), itsPath()
+34
+35
+JEVOIS_TRACE
+(5);
+36
+37
+38
+// ######################################################################
+39
+std::string
+const
+jevois::Component::className
+()
+const
+40
+41
+boost::shared_lock<boost::shared_mutex> lck(itsMetaMtx);
+42
+43
+// We need the (derived!) component to be fully constructed for demangle to work, hence the const_cast here:
+44
+if
+(itsClassName.empty()) *(
+const_cast<
+std::string *
+(&itsClassName)) =
+jevois::demangle
+typeid
+(*this).name());
+45
+46
+return
+itsClassName;
+47
+48
+49
+// ######################################################################
+50
+std::string
+const
+jevois::Component::instanceName
+()
+const
+51
+return
+itsInstanceName; }
+52
+53
+// ######################################################################
+54
+jevois::Component::~Component
+()
+55
+56
+JEVOIS_TRACE
+(5);
+57
+58
+LDEBUG
+"Deleting Component"
+);
+59
+60
+// Recursively un-init us and our subs; call base class version as derived classes are destroyed:
+61
+if
+(itsInitialized) jevois::Component::uninit();
+62
+63
+// All right, we need to nuke our subs BEFORE we get destroyed, since they will backflow to us (for param
+64
+// notices, recursive descriptor access, etc):
+65
+boost::upgrade_lock<boost::shared_mutex> uplck(itsSubMtx);
+66
+67
+while
+(itsSubComponents.empty() ==
+false
+68
+69
+auto
+itr = itsSubComponents.begin();
+70
+doRemoveSubComponent(itr, uplck,
+"SubComponent"
+);
+71
+72
+73
+74
+// ######################################################################
+75
+void
+jevois::Component::removeSubComponent
+(std::string
+const
+& instanceName,
+bool
+warnIfNotFound)
+76
+77
+JEVOIS_TRACE
+(5);
+78
+79
+boost::upgrade_lock<boost::shared_mutex> uplck(itsSubMtx);
+80
+81
+for
+auto
+itr = itsSubComponents.begin(); itr != itsSubComponents.end(); ++itr)
+82
+if
+((*itr)->instanceName() == instanceName)
+83
+84
+// All checks out, get doRemoveSubComponent() to do the work:
+85
+doRemoveSubComponent(itr, uplck,
+"SubComponent"
+);
+86
+return
+87
+88
+89
+if
+(warnIfNotFound)
+LERROR
+"SubComponent ["
+<< instanceName <<
+"] not found. Ignored."
+);
+90
+91
+92
+// ######################################################################
+93
+void
+jevois::Component::doRemoveSubComponent(std::vector<std::shared_ptr<jevois::Component> >::iterator & itr,
+94
+boost::upgrade_lock<boost::shared_mutex> & uplck,
+95
+std::string
+const
+& displayname)
+96
+97
+JEVOIS_TRACE
+(5);
+98
+99
+// Try to delete and let's check that it will actually be deleted:
+100
+std::shared_ptr<jevois::Component> component = *itr;
+101
+102
+LDEBUG
+"Removing "
+<< displayname <<
+" ["
+<< component->descriptor() <<
+']'
+);
+103
+104
+// Un-init the component:
+105
+if
+(component->initialized()) component->uninit();
+106
+107
+// Remove it from our list of subs:
+108
+boost::upgrade_to_unique_lock<boost::shared_mutex> ulck(uplck);
+109
+itsSubComponents.erase(itr);
+110
+111
+if
+(component.use_count() > 1)
+112
+LERROR
+(component.use_count() - 1 <<
+" additional external shared_ptr reference(s) exist to "
+113
+<< displayname <<
+" ["
+<< component->descriptor() <<
+"]. It was removed but NOT deleted."
+);
+114
+115
+component.reset();
+// nuke the shared_ptr, this should yield a delete unless use_count was > 1
+116
+117
+118
+// ######################################################################
+119
+bool
+jevois::Component::isTopLevel
+()
+const
+120
+121
+JEVOIS_TRACE
+(6);
+122
+123
+boost::shared_lock<boost::shared_mutex> lck(itsMtx);
+124
+if
+dynamic_cast<
+jevois::Manager
+(itsParent) !=
+nullptr
+return
+true
+125
+return
+false
+126
+127
+128
+// ######################################################################
+129
+jevois::Engine
+* jevois::Component::engine()
+const
+130
+131
+JEVOIS_TRACE
+(6);
+132
+133
+boost::shared_lock<boost::shared_mutex> lck(itsMtx);
+134
+jevois::Engine
+* eng =
+dynamic_cast<
+jevois::Engine
+(itsParent);
+135
+if
+(eng)
+return
+eng;
+136
+if
+(itsParent)
+return
+itsParent->engine();
+137
+LFATAL
+"Reached root of hierarchy but could not find an Engine"
+);
+138
+139
+140
+// ######################################################################
+141
+void
+jevois::Component::init()
+142
+143
+JEVOIS_TRACE
+(5);
+144
+145
+if
+(itsInitialized) {
+LERROR
+"Already initialized. Ignored."
+);
+return
+; }
+146
+147
+LDEBUG
+"Initializing..."
+);
+148
+149
+runPreInit();
+150
+setInitialized();
+151
+runPostInit();
+152
+153
+LDEBUG
+"Initialized."
+);
+154
+155
+156
+// ######################################################################
+157
+void
+jevois::Component::runPreInit()
+158
+159
+JEVOIS_TRACE
+(6);
+160
+161
+// Pre-init all subComponents:
+162
+163
+boost::shared_lock<boost::shared_mutex> lck(itsSubMtx);
+164
+for
+(std::shared_ptr<jevois::Component> c : itsSubComponents) c->runPreInit();
+165
+166
+167
+// Then us. So the last one here will be the manager, and its preInit() will parse the command line:
+168
+preInit();
+169
+170
+// If we have some parameters with callbacks that have not been set expicitly by the command-line, call the callback a
+171
+// first time here. This may add some new parameters
+172
+ParameterRegistry::callbackInitCall
+();
+173
+174
+175
+// ######################################################################
+176
+void
+jevois::Component::setInitialized()
+177
+178
+JEVOIS_TRACE
+(6);
+179
+180
+// First all subComponents
+181
+182
+boost::shared_lock<boost::shared_mutex> lck(itsSubMtx);
+183
+for
+(std::shared_ptr<jevois::Component> c : itsSubComponents) c->setInitialized();
+184
+185
+186
+// Then us:
+187
+itsInitialized =
+true
+188
+189
+190
+// ######################################################################
+191
+void
+jevois::Component::runPostInit()
+192
+193
+JEVOIS_TRACE
+(6);
+194
+195
+// First all subComponents:
+196
+197
+boost::shared_lock<boost::shared_mutex> lck(itsSubMtx);
+198
+for
+(std::shared_ptr<jevois::Component> c : itsSubComponents) c->runPostInit();
+199
+200
+201
+// Then us:
+202
+postInit();
+203
+204
+205
+// ######################################################################
+206
+bool
+jevois::Component::initialized
+()
+const
+207
+208
+JEVOIS_TRACE
+(6);
+209
+210
+return
+itsInitialized;
+211
+212
+213
+// ######################################################################
+214
+void
+jevois::Component::uninit()
+215
+216
+JEVOIS_TRACE
+(5);
+217
+218
+if
+(itsInitialized)
+219
+220
+LDEBUG
+"Uninitializing..."
+);
+221
+222
+runPreUninit();
+223
+setUninitialized();
+224
+runPostUninit();
+225
+226
+LDEBUG
+"Uninitialized."
+);
+227
+228
+229
+230
+// ######################################################################
+231
+void
+jevois::Component::runPreUninit()
+232
+233
+JEVOIS_TRACE
+(6);
+234
+235
+// First all subComponents:
+236
+237
+boost::shared_lock<boost::shared_mutex> lck(itsSubMtx);
+238
+for
+(std::shared_ptr<jevois::Component> c : itsSubComponents) c->runPreUninit();
+239
+240
+241
+// Then us:
+242
+preUninit();
+243
+244
+245
+// ######################################################################
+246
+void
+jevois::Component::setUninitialized()
+247
+248
+JEVOIS_TRACE
+(6);
+249
+250
+// First us:
+251
+itsInitialized =
+false
+252
+253
+// Then all subComponents
+254
+255
+boost::shared_lock<boost::shared_mutex> lck(itsSubMtx);
+256
+for
+(std::shared_ptr<jevois::Component> c : itsSubComponents) c->setUninitialized();
+257
+258
+259
+260
+// ######################################################################
+261
+void
+jevois::Component::runPostUninit()
+262
+263
+JEVOIS_TRACE
+(6);
+264
+265
+// First us:
+266
+postUninit();
+267
+268
+// Then all subComponents:
+269
+270
+boost::shared_lock<boost::shared_mutex> lck(itsSubMtx);
+271
+for
+(std::shared_ptr<jevois::Component> c : itsSubComponents) c->runPostUninit();
+272
+273
+274
+275
+// ######################################################################
+276
+std::string
+jevois::Component::descriptor
+()
+const
+277
+278
+JEVOIS_TRACE
+(8);
+279
+280
+// Top-level components or those with no parent just return their instance name. Sub-components return a chain of
+281
+// component instance names up to the top level:
+282
+283
+boost::shared_lock<boost::shared_mutex> lck(itsMtx);
+284
+285
+if
+(itsParent &&
+dynamic_cast<
+jevois::Manager
+(itsParent) ==
+nullptr
+286
+return
+itsParent->descriptor() +
+':'
++ itsInstanceName;
+287
+288
+return
+itsInstanceName;
+289
+290
+291
+// ######################################################################
+292
+void
+jevois::Component::findParamAndActOnIt(std::string
+const
+& descrip,
+293
+std::function<
+void
+jevois::ParameterBase
+*, std::string
+const
+&)> doit,
+294
+std::function<
+bool
+()> empty)
+const
+295
+296
+JEVOIS_TRACE
+(9);
+297
+298
+// Split this parameter descriptor by single ":" (skipping over all "::")
+299
+std::vector<std::string> desc =
+jevois::split
+(descrip,
+":"
+/*"FIXME "(?<!:):(?!:)" */
+);
+300
+301
+if
+(desc.empty())
+throw
+std::range_error(descriptor() +
+": Cannot parse empty parameter name"
+);
+302
+303
+// Recursive call with the vector of tokens:
+304
+findParamAndActOnIt(desc,
+true
+, 0,
+""
+, doit);
+305
+306
+if
+(empty())
+throw
+std::range_error(descriptor() +
+": No Parameter named ["
++ descrip +
+']'
+);
+307
+308
+309
+// ######################################################################
+310
+void
+jevois::Component::findParamAndActOnIt(std::vector<std::string>
+const
+& descrip,
+311
+bool
+recur,
+size_t
+idx, std::string
+const
+& unrolled,
+312
+std::function<
+void
+jevois::ParameterBase
+*, std::string
+const
+&)> doit)
+const
+313
+314
+JEVOIS_TRACE
+(9);
+315
+316
+// Have we not yet reached the bottom (still have some component names before the param)?
+317
+if
+(descrip.size() > idx + 1)
+318
+319
+// We have some token before the param, is it a '*', in which case we turn on recursion?
+320
+if
+(descrip[idx] ==
+"*"
+) { recur =
+true
+; ++idx; }
+321
+else
+322
+// We have some Instance specification(s) of component(s) before the param. Let's see if we match against the
+323
+// first one.  If it's a match, eat up the first token and send the rest of the tokens to our subcomponents,
+324
+// otherwise keep the token and recurse the entire list to the subs:
+325
+if
+(itsInstanceName == descrip[idx]) { recur =
+false
+; ++idx; }
+326
+327
+328
+329
+// Have we reached the end of the list (the param name)?
+330
+if
+(descrip.size() == idx + 1)
+331
+332
+// We have just a paramname, let's see if we have that param:
+333
+boost::shared_lock<boost::shared_mutex> lck(itsParamMtx);
+334
+335
+for
+auto
+const
+& p : itsParameterList)
+336
+if (p.second->name() == descrip[idx])
+337
+338
+// param name is a match, act on it:
+339
+std::string ur = itsInstanceName +
+':'
++ p.second->name();
+340
+if
+(unrolled.empty() ==
+false
+) ur = unrolled +
+':'
++ ur;
+341
+doit(p.second, ur);
+342
+343
+344
+345
+// Recurse through our subcomponents if recur is on or we have not yet reached the bottom:
+346
+if
+(recur || descrip.size() > idx + 1)
+347
+348
+boost::shared_lock<boost::shared_mutex> lck(itsSubMtx);
+349
+350
+std::string ur;
+351
+if
+(unrolled.empty()) ur = itsInstanceName;
+else
+ur = unrolled +
+':'
++ itsInstanceName;
+352
+353
+for
+(std::shared_ptr<jevois::Component> c : itsSubComponents) c->findParamAndActOnIt(descrip, recur, idx, ur, doit);
+354
+355
+356
+357
+// ######################################################################
+358
+std::vector<std::string>
+jevois::Component::setParamString
+(std::string
+const
+& descriptor, std::string
+const
+& val)
+359
+360
+JEVOIS_TRACE
+(7);
+361
+362
+std::vector<std::string> ret;
+363
+findParamAndActOnIt(descriptor,
+364
+365
+[&ret,&val](
+jevois::ParameterBase
+* param, std::string
+const
+& unrolled)
+366
+{ param->
+strset
+(val); ret.push_back(unrolled); },
+367
+368
+[&ret]() {
+return
+ret.empty(); }
+369
+);
+370
+return
+ret;
+371
+372
+373
+// ######################################################################
+374
+void
+jevois::Component::setParamStringUnique
+(std::string
+const
+& descriptor, std::string
+const
+& val)
+375
+376
+JEVOIS_TRACE
+(7);
+377
+378
+// Try a get before we set to make sure we only have one hit:
+379
+std::vector<std::pair<std::string, std::string> > test = getParamString(descriptor);
+380
+if
+(test.size() > 1)
+throw
+std::range_error(
+"Ambiguous multiple matches for descriptor ["
++ descriptor +
+']'
+);
+381
+382
+// Ok, set it, ret should always have size 1:
+383
+std::vector<std::string> ret = setParamString(descriptor, val);
+384
+if
+(ret.size() > 1)
+throw
+std::range_error(
+"Ambiguous multiple matches for descriptor ["
++ descriptor +
+']'
+);
+385
+386
+387
+// ######################################################################
+388
+std::vector<std::pair<std::string, std::string> >
+389
+jevois::Component::getParamString
+(std::string
+const
+& descriptor)
+const
+390
+391
+JEVOIS_TRACE
+(8);
+392
+393
+std::vector<std::pair<std::string, std::string> > ret;
+394
+findParamAndActOnIt(descriptor,
+395
+396
+[&ret](
+jevois::ParameterBase
+* param, std::string
+const
+& unrolled)
+397
+{ ret.push_back(std::make_pair(unrolled, param->
+strget
+())); },
+398
+399
+[&ret]() {
+return
+ret.empty(); }
+400
+);
+401
+return
+ret;
+402
+403
+404
+// ######################################################################
+405
+std::string
+jevois::Component::getParamStringUnique
+(std::string
+const
+& descriptor)
+const
+406
+407
+JEVOIS_TRACE
+(8);
+408
+409
+std::vector<std::pair<std::string, std::string> > ret = getParamString(descriptor);
+410
+if
+(ret.size() > 1)
+throw
+std::range_error(
+"Ambiguous multiple matches for descriptor ["
++ descriptor +
+']'
+);
+411
+412
+// We know that ret is not empty because getParamString() throws if the param is not found:
+413
+return
+ret[0].second;
+414
+415
+416
+// ######################################################################
+417
+void
+jevois::Component::freezeParam
+(std::string
+const
+& paramdescriptor,
+bool
+doit)
+418
+419
+int
+n = 0;
+420
+findParamAndActOnIt(paramdescriptor,
+421
+[&n,doit](
+jevois::ParameterBase
+* param, std::string
+const
+&)
+422
+{ param->
+freeze
+(doit); ++n; },
+423
+424
+[&n]() {
+return
+(n == 0); }
+425
+);
+426
+427
+428
+// ######################################################################
+429
+void
+jevois::Component::freezeAllParams
+bool
+doit)
+430
+431
+boost::shared_lock<boost::shared_mutex> lck(itsParamMtx);
+432
+433
+for
+auto
+const
+& p : itsParameterList) p.second->freeze(doit);
+434
+435
+436
+// ######################################################################
+437
+void
+jevois::Component::hideParam
+(std::string
+const
+& paramdescriptor,
+bool
+doit)
+438
+439
+int
+n = 0;
+440
+findParamAndActOnIt(paramdescriptor,
+441
+[&n,doit](
+jevois::ParameterBase
+* param, std::string
+const
+&)
+442
+{ param->
+hide
+(doit); ++n; },
+443
+444
+[&n]() {
+return
+(n == 0); }
+445
+);
+446
+447
+448
+// ######################################################################
+449
+void
+jevois::Component::hideAllParams
+bool
+doit)
+450
+451
+boost::shared_lock<boost::shared_mutex> lck(itsParamMtx);
+452
+453
+for
+auto
+const
+& p : itsParameterList) p.second->hide(doit);
+454
+455
+456
+// ######################################################################
+457
+void
+jevois::Component::setParamsFromFile
+(std::string
+const
+& filename)
+458
+459
+std::string
+const
+absfile =
+absolutePath
+(filename);
+460
+std::ifstream ifs(absfile);
+461
+if
+(!ifs)
+LFATAL
+"Could not open file "
+<< absfile);
+462
+setParamsFromStream(ifs, absfile);
+463
+464
+465
+// ######################################################################
+466
+std::istream &
+jevois::Component::setParamsFromStream
+(std::istream & is,std::string
+const
+& absfile)
+467
+468
+size_t
+linenum = 1;
+469
+for
+(std::string line; std::getline(is, line);
+/* */
+470
+471
+// Skip over comments:
+472
+if
+(line.length() && line[0] ==
+'#'
+) { ++linenum;
+continue
+; }
+473
+474
+// Skip over empty lines:
+475
+if
+(std::all_of(line.begin(), line.end(), [](
+unsigned
+char
+c) { return std::isspace(c); })) { ++linenum;
+continue
+; }
+476
+477
+// Parse descriptor=value:
+478
+size_t
+idx = line.find(
+'='
+);
+479
+if
+(idx == line.npos)
+LFATAL
+"No '=' symbol found at line "
+<< linenum <<
+" in "
+<< absfile);
+480
+if
+(idx == 0)
+LFATAL
+"No parameter descriptor found at line "
+<< linenum <<
+" in "
+<< absfile);
+481
+if
+(idx == line.length() - 1)
+LFATAL
+"No parameter value found at line "
+<< linenum <<
+" in "
+<< absfile);
+482
+483
+std::string desc = line.substr(0, idx);
+484
+std::string val = line.substr(idx + 1);
+485
+486
+// Be nice and clean whitespace at start and end (not in the middle):
+487
+while
+(desc.length() > 0 && std::isspace(desc[0])) desc.erase(0, 1);
+488
+while
+(desc.length() > 0 && std::isspace(desc[desc.length()-1])) desc.erase(desc.length()-1, 1);
+489
+if
+(desc.empty())
+LFATAL
+"Invalid blank parameter descriptor at line "
+<< linenum <<
+" in "
+<< absfile);
+490
+491
+while
+(val.length() > 0 && std::isspace(val[0])) val.erase(0, 1);
+492
+while
+(val.length() > 0 && std::isspace(val[val.length()-1])) val.erase(val.length()-1, 1);
+493
+if
+(val.empty())
+LFATAL
+"Invalid blank parameter value at line "
+<< linenum <<
+" in "
+<< absfile);
+494
+495
+// Ok, set that param:
+496
+setParamString(desc, val);
+497
+498
+++linenum;
+499
+500
+return
+is;
+501
+502
+503
+// ######################################################################
+504
+void
+jevois::Component::setPath
+(std::string
+const
+& path)
+505
+506
+JEVOIS_TRACE
+(5);
+507
+508
+// First all subComponents:
+509
+510
+boost::shared_lock<boost::shared_mutex> lck(itsSubMtx);
+511
+for
+(std::shared_ptr<jevois::Component> c : itsSubComponents) c->setPath(path);
+512
+513
+514
+itsPath = path;
+515
+516
+517
+// ######################################################################
+518
+void
+jevois::Component::removeDynamicParameter
+(std::string
+const
+& name,
+bool
+throw_if_not_found)
+519
+520
+std::lock_guard<std::mutex> _(itsDynParMtx);
+521
+522
+auto
+itr = itsDynParams.find(name);
+523
+if
+(itr == itsDynParams.end())
+524
+525
+if
+(throw_if_not_found)
+LFATAL
+"No dynamic parameter with name ["
+<< name <<
+']'
+);
+526
+return
+527
+528
+529
+// Upon erase, DynamicParameter destructor will remove the param from the registry:
+530
+itsDynParams.erase(itr);
+531
+532
+533
+// ######################################################################
+534
+std::filesystem::path
+jevois::Component::absolutePath
+(std::filesystem::path
+const
+& path)
+535
+536
+JEVOIS_TRACE
+(6);
+537
+return
+jevois::absolutePath
+(std::filesystem::path(itsPath), path);
+538
+539
+540
+// ######################################################################
+541
+void
+jevois::Component::paramInfo
+(std::shared_ptr<UserInterface> s, std::map<std::string, std::string> & categs,
+542
+bool
+skipFrozen, std::string
+const
+& cname, std::string
+const
+& pfx)
+543
+544
+JEVOIS_TRACE
+(9);
+545
+546
+std::string
+const
+compname = cname.empty() ? itsInstanceName : cname +
+':'
++ itsInstanceName;
+547
+548
+// First add our own params:
+549
+550
+boost::shared_lock<boost::shared_mutex> lck(itsParamMtx);
+551
+for
+auto
+const
+& p : itsParameterList)
+552
+553
+jevois::ParameterSummary
+const
+ps = p.second->summary();
+554
+555
+if
+(ps.
+hidden
+continue
+556
+if
+(skipFrozen && ps.
+frozen
+continue
+557
+558
+categs[ps.
+category
+] = ps.
+categorydescription
+559
+560
+if
+(ps.
+frozen
+) s->writeString(pfx,
+"F"
+);
+else
+s->writeString(pfx,
+"N"
+);
+561
+s->writeString(pfx, compname);
+562
+s->writeString(pfx, ps.
+category
+);
+563
+s->writeString(pfx, ps.
+name
+);
+564
+s->writeString(pfx, ps.
+valuetype
+);
+565
+s->writeString(pfx, ps.
+value
+);
+566
+s->writeString(pfx, ps.
+defaultvalue
+);
+567
+s->writeString(pfx, ps.
+validvalues
+);
+568
+s->writeString(pfx, ps.
+description
+);
+569
+570
+571
+572
+// Then recurse through our subcomponents:
+573
+boost::shared_lock<boost::shared_mutex> lck(itsSubMtx);
+574
+for
+(std::shared_ptr<jevois::Component> c : itsSubComponents) c->paramInfo(s, categs, skipFrozen, compname, pfx);
+575
+576
+// At the root only, dump the list of categories:
+577
+if
+(cname.empty())
+578
+579
+s->writeString(pfx,
+"C"
+);
+580
+for
+auto
+const
+& c : categs)
+581
+582
+s->writeString(pfx, c.first);
+583
+s->writeString(pfx, c.second);
+584
+585
+586
+587
+588
+// ######################################################################
+589
+void
+jevois::Component::foreachParam
+(std::function<
+void
+(std::string
+const
+& compname,
+jevois::ParameterBase
+* p)> func,
+590
+std::string
+const
+& cname)
+591
+592
+JEVOIS_TRACE
+(9);
+593
+594
+std::string
+const
+compname = cname.empty() ? itsInstanceName : cname +
+':'
++ itsInstanceName;
+595
+596
+// First process our own params:
+597
+598
+boost::shared_lock<boost::shared_mutex> lck(itsParamMtx);
+599
+for
+auto
+const
+& p : itsParameterList) func(compname, p.second);
+600
+601
+602
+// Then recurse through our subcomponents:
+603
+boost::shared_lock<boost::shared_mutex> lck(itsSubMtx);
+604
+for
+(std::shared_ptr<jevois::Component> c : itsSubComponents) c->foreachParam(func, compname);
+605
+606
+607
+// ######################################################################
+608
+void
+jevois::Component::populateHelpMessage(std::string
+const
+& cname,
+609
+std::unordered_map<std::string,
+610
+std::unordered_map<std::string,
+611
+std::vector<std::pair<std::string, std::string> > > > & helplist,
+612
+bool
+recurse)
+const
+613
+614
+JEVOIS_TRACE
+(9);
+615
+616
+std::string
+const
+compname = cname.empty() ? itsInstanceName : cname +
+':'
++ itsInstanceName;
+617
+618
+// First add our own params:
+619
+620
+boost::shared_lock<boost::shared_mutex> lck(itsParamMtx);
+621
+for
+auto
+const
+& p : itsParameterList)
+622
+623
+jevois::ParameterSummary
+const
+ps = p.second->summary();
+624
+625
+if
+(ps.
+frozen
+|| ps.
+hidden
+continue
+// skip frozen and/or hidden parameters
+626
+627
+std::string
+const
+key1 = ps.
+category
+":  "
++ ps.
+categorydescription
+628
+std::string
+const
+key2 =
+"  --"
++ ps.
+name
+" ("
++ ps.
+valuetype
+") default=["
++ ps.
+defaultvalue
+"]"
+629
+(ps.
+validvalues
+==
+"None:[]"
+"\n"
+" "
++ ps.
+validvalues
+"\n"
+) +
+"    "
++ ps.
+description
+630
+std::string val =
+""
+631
+if
+(ps.
+value
+!= ps.
+defaultvalue
+) val = ps.
+value
+632
+helplist[key1][key2].push_back(std::make_pair(compname, val));
+633
+634
+635
+636
+// Then recurse through our subcomponents:
+637
+if
+(recurse)
+638
+639
+boost::shared_lock<boost::shared_mutex> lck(itsSubMtx);
+640
+for
+(std::shared_ptr<jevois::Component> c : itsSubComponents) c->populateHelpMessage(compname, helplist);
+641
+642
+643
+644
+// ######################################################################
+645
+std::string jevois::Component::computeInstanceName(std::string
+const
+& instance, std::string
+const
+& classname)
+const
+646
+647
+JEVOIS_TRACE
+(9);
+648
+649
+std::string inst = instance;
+650
+651
+// If empty instance, replace it by the classname:
+652
+if
+(inst.empty())
+653
+654
+// Use the class name:
+655
+inst = classname +
+'#'
+656
+657
+// Remove any namespace:: prefix:
+658
+size_t
+const
+idxx = inst.rfind(
+':'
+);
+if
+(idxx != inst.npos) inst = inst.substr(idxx + 1);
+659
+660
+661
+// Replace all # characters by some number, if necessary:
+662
+std::vector<std::string> vec =
+jevois::split
+(inst,
+"#"
+);
+663
+if
+(vec.size() > 1)
+664
+665
+// First try to have no numbers in there:
+666
+inst =
+jevois::join
+(vec,
+""
+);
+bool
+found =
+false
+667
+for
+(std::shared_ptr<Component>
+const
+& c : itsSubComponents)
+668
+if (c->instanceName() == inst) { found =
+true
+break
+; }
+669
+670
+if
+(found)
+671
+672
+// Ok, we have some conflict, so let's add some numbers where the # signs were:
+673
+inst =
+""
+674
+for
+(std::string
+const
+& v : vec)
+675
+676
+if
+(v.empty())
+continue
+677
+678
+inst += v;
+679
+size_t
+largestId = 1;
+680
+681
+while
+true
+682
+683
+std::string stem = inst + std::to_string(largestId);
+684
+bool
+gotit =
+false
+685
+686
+for
+(std::shared_ptr<Component>
+const
+& c : itsSubComponents)
+687
+if (c->instanceName() == stem) { gotit =
+true
+break
+; }
+688
+689
+if
+(gotit ==
+false
+) { inst = stem;
+break
+; }
+690
+691
+++largestId;
+692
+693
+694
+695
+696
+LDEBUG
+"Using automatic instance name ["
+<< inst <<
+']'
+);
+697
+return
+inst;
+698
+699
+700
+// If we have not returned yet, no # was given. Throw if there is a conflict:
+701
+for
+(std::shared_ptr<Component>
+const
+& c : itsSubComponents)
+702
+if (c->instanceName() == inst)
+703
+throw std::runtime_error(
+"Provided instance name ["
++ instance +
+"] clashes with existing sub-components."
+);
+704
+705
+return
+inst;
+706
+707
+Component.H
+Engine.H
+Log.H
+Manager.H
+Parameter.H
+UserInterface.H
+Utils.H
+jevois::Component::setParamString
+std::vector< std::string > setParamString(std::string const &paramdescriptor, std::string const &val)
+Set a parameter value, by string.
+Definition
+Component.C:358
+jevois::Component::absolutePath
+std::filesystem::path absolutePath(std::filesystem::path const &path="")
+If given path is relative (not starting with /), prepend the Component path to it.
+Definition
+Component.C:534
+jevois::Component::descriptor
+std::string descriptor() const
+Get our full descriptor (including all parents) as [Instancename]:[...]:[...].
+Definition
+Component.C:276
+jevois::Component::getParamString
+std::vector< std::pair< std::string, std::string > > getParamString(std::string const &paramdescriptor) const
+Get a parameter value, by string.
+Definition
+Component.C:389
+jevois::Component::freezeParam
+void freezeParam(std::string const &paramdescriptor, bool doit)
+Freeze/unfreeze a parameter, by name, see ParameterBase::freeze()
+Definition
+Component.C:417
+jevois::Component::initialized
+bool initialized() const
+Has this component been initialized yet?
+Definition
+Component.C:206
+jevois::Component::instanceName
+std::string const & instanceName() const
+The instance name of this component.
+Definition
+Component.C:50
+jevois::Component::foreachParam
+void foreachParam(std::function< void(std::string const &compname, ParameterBase *p)> func, std::string const &cname="")
+Run a function on every param we hold.
+Definition
+Component.C:589
+jevois::Component::setParamsFromStream
+std::istream & setParamsFromStream(std::istream &is, std::string const &absfile)
+Set some parameters from an open stream.
+Definition
+Component.C:466
+jevois::Component::freezeAllParams
+void freezeAllParams(bool doit)
+Freeze all parameters.
+Definition
+Component.C:429
+jevois::Component::removeSubComponent
+void removeSubComponent(std::shared_ptr< Comp > &component)
+Remove a sub-Component from this Component, by shared_ptr.
+jevois::Component::isTopLevel
+bool isTopLevel() const
+Returns true if this component is top-level, i.e., its parent is jevois::Manager.
+Definition
+Component.C:119
+jevois::Component::setPath
+void setPath(std::string const &path)
+Assign a filesystem path to this component.
+Definition
+Component.C:504
+jevois::Component::hideAllParams
+void hideAllParams(bool doit)
+Hide all parameters.
+Definition
+Component.C:449
+jevois::Component::~Component
+virtual ~Component()
+Virtual destructor for safe inheritance.
+Definition
+Component.C:54
+jevois::Component::hideParam
+void hideParam(std::string const &paramdescriptor, bool doit)
+Hide/unhide a parameter, by name, see ParameterBase::hide()
+Definition
+Component.C:437
+jevois::Component::paramInfo
+virtual void paramInfo(std::shared_ptr< UserInterface > s, std::map< std::string, std::string > &categs, bool skipFrozen, std::string const &cname="", std::string const &pfx="")
+Get machine-oriented descriptions of all parameters.
+Definition
+Component.C:541
+jevois::Component::className
+std::string const & className() const
+The class name of this component.
+Definition
+Component.C:39
+jevois::Component::getParamStringUnique
+std::string getParamStringUnique(std::string const &paramdescriptor) const
+Get a parameter value by string, simple version assuming only one parameter match.
+Definition
+Component.C:405
+jevois::Component::setParamsFromFile
+void setParamsFromFile(std::string const &filename)
+Set some parameters from a file.
+Definition
+Component.C:457
+jevois::Component::removeDynamicParameter
+void removeDynamicParameter(std::string const &name, bool throw_if_not_found=true)
+Remove a previously added dynamic parameter.
+Definition
+Component.C:518
+jevois::Component::setParamStringUnique
+void setParamStringUnique(std::string const &paramdescriptor, std::string const &val)
+Set a parameter value by string, simple version assuming only one parameter match.
+Definition
+Component.C:374
+jevois::Engine
+JeVois processing engine - gets images from camera sensor, processes them, and sends results over USB...
+Definition
+Engine.H:416
+jevois::Manager
+Manager of a hierarchy of Component objects.
+Definition
+Manager.H:74
+jevois::ParameterBase
+Base class for Parameter.
+Definition
+Parameter.H:126
+jevois::ParameterBase::strset
+virtual void strset(std::string const &valstring)=0
+Set the value from a string representation of it.
+jevois::ParameterBase::hide
+void hide(bool doit)
+Hide or un-hide a parameter; hidden params will not show up in GUI or help message,...
+jevois::ParameterBase::strget
+virtual std::string const strget() const =0
+Get the value as a string.
+jevois::ParameterBase::freeze
+void freeze(bool doit)
+Freeze or un-freeze a parameter; frozen parameters cannot be set(), but get() is still allowed.
+jevois::ParameterRegistry::callbackInitCall
+void callbackInitCall()
+For all parameters that have a callback which has never been called, call it with the default param v...
+Definition
+ParameterRegistry.C:63
+jevois::ParameterRegistry::Component
+friend class Component
+Allow Component and DynamicParameter to access our registry data, everyone else is locked out.
+Definition
+ParameterRegistry.H:51
+jevois::ParameterSummary
+ParameterSummary provides a summary about a parameter.
+Definition
+Parameter.H:85
+jevois::ParameterSummary::name
+std::string name
+Plain name of the parameter.
+Definition
+Parameter.H:91
+jevois::ParameterSummary::category
+std::string category
+Category of the parameter, as a string.
+Definition
+Parameter.H:109
+jevois::ParameterSummary::categorydescription
+std::string categorydescription
+Category description.
+Definition
+Parameter.H:112
+jevois::ParameterSummary::valuetype
+std::string valuetype
+Parameter value type, as a string.
+Definition
+Parameter.H:97
+jevois::ParameterSummary::value
+std::string value
+Current value of the parameter, as a string.
+Definition
+Parameter.H:103
+jevois::ParameterSummary::validvalues
+std::string validvalues
+Description of the parameter's valid values specification, as a string.
+Definition
+Parameter.H:106
+jevois::ParameterSummary::defaultvalue
+std::string defaultvalue
+Default value of the parameter, as a string.
+Definition
+Parameter.H:100
+jevois::ParameterSummary::frozen
+bool frozen
+Flag that indicates whether parameter is frozen.
+Definition
+Parameter.H:115
+jevois::ParameterSummary::hidden
+bool hidden
+Flag that indicates whether parameter is hidden.
+Definition
+Parameter.H:118
+jevois::ParameterSummary::description
+std::string description
+Description of the parameter.
+Definition
+Parameter.H:94
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+LDEBUG
+#define LDEBUG(msg)
+Convenience macro for users to print out console or syslog messages, DEBUG level.
+Definition
+Log.H:173
+JEVOIS_TRACE
+#define JEVOIS_TRACE(level)
+Trace object.
+Definition
+Log.H:296
+LERROR
+#define LERROR(msg)
+Convenience macro for users to print out console or syslog messages, ERROR level.
+Definition
+Log.H:211
+jevois::demangle
+std::string demangle(std::string const &mangledName)
+Demangle a mangled name.
+jevois::join
+std::string join(std::vector< T > const &tokens, std::string const &delimiter)
+Concatenate a vector of tokens into a string.
+jevois::absolutePath
+std::filesystem::path absolutePath(std::filesystem::path const &root, std::filesystem::path const &path)
+Compute an absolute path from two paths.
+Definition
+Utils.C:386
+jevois::split
+std::vector< std::string > split(std::string const &input, std::string const &regex="\\s+")
+Split string into vector of tokens using a regex to specify what to split on; default regex splits by...
+Definition
+Utils.C:270
+src
+jevois
+Component
+Component.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+

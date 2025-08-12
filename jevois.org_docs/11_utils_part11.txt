@@ -1,0 +1,4088 @@
+DOCUMENTATION JEVOIS - PARTIE 11
+Catégorie principale: UTILS
+Nombre de documents: 2
+================================================================================
+
+
+================================================================================
+URL: http://jevois.org/doc/DNN_2Utils_8C_source.html
+TITRE: JeVois: src/jevois/DNN/Utils.C Source File
+================================================================================
+
+JeVois: src/jevois/DNN/Utils.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+Utils.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2020 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#include <
+jevois/DNN/Utils.H
+19
+#include <
+jevois/Util/Utils.H
+20
+#include <
+jevois/Debug/Log.H
+21
+#include <fstream>
+22
+#include <cstring>
+// for std::memcpy()
+23
+24
+// ##############################################################################################################
+25
+std::map<int, std::string>
+jevois::dnn::getClassLabels
+(std::string
+const
+& arg)
+26
+27
+// First try to interpret arg as a file name:
+28
+auto
+p =
+jevois::absolutePath
+JEVOIS_SHARE_PATH
+, arg);
+29
+std::ifstream ifs(p);
+30
+if
+(ifs.is_open()) { ifs.close();
+return
+jevois::dnn::readLabelsFile
+(p); }
+31
+32
+// Otherwise, assume comma-separated list of classes:
+33
+auto
+tok =
+jevois::split
+(arg,
+"\\s*,\\s*"
+);
+34
+int
+classid = 0;
+35
+std::map<int, std::string> ret;
+36
+for
+auto
+c : tok) ret[classid++] = c;
+37
+38
+return
+ret;
+39
+40
+41
+// ##############################################################################################################
+42
+std::map<int, std::string>
+jevois::dnn::readLabelsFile
+(std::string
+const
+& fname)
+43
+44
+std::ifstream ifs(fname);
+45
+if
+(ifs.is_open() ==
+false
+LFATAL
+"Failed to open file "
+<< fname);
+46
+47
+size_t
+linenum = 1; std::map<int, std::string> ret;
+int
+id
+= 0;
+48
+for
+(std::string line; std::getline(ifs, line); ++linenum)
+49
+50
+size_t
+idx1 = line.find_first_not_of(
+" \t"
+);
+if
+(idx1 == line.npos)
+continue
+51
+size_t
+idx2 = line.find_last_not_of(
+" \t\r\n"
+);
+if
+(idx2 == line.npos)
+continue
+52
+if
+(line[idx1] ==
+'#'
+continue
+53
+54
+try
+id
+= std::stoi(line, &idx1); idx1 = line.find_first_not_of(
+"0123456789 \t,:"
+, idx1); }
+catch
+(...) { }
+55
+56
+std::string classname;
+57
+if
+(idx1 >= idx2)
+58
+59
+LERROR
+(fname <<
+':'
+<< linenum <<
+": empty class name -- REPLACING BY 'unspecified'"
+);
+60
+classname =
+"unspecified"
+61
+62
+else
+classname = line.substr(idx1, idx2 + 1 - idx1);
+63
+64
+// Possibly replace two double quotes by one:
+65
+jevois::replaceStringAll
+(classname,
+"\"\""
+"\""
+);
+66
+67
+// Possibly remove enclosing double quotes:
+68
+size_t
+len = classname.length();
+69
+if
+(len > 1 && classname[0] ==
+'"'
+&& classname[len-1] ==
+'"'
+) classname = classname.substr(1, len-2);
+70
+71
+ret[id] = classname;
+72
+73
+// Increment id in case no ID number is given in the file:
+74
+++id;
+75
+76
+77
+ifs.close();
+78
+79
+LINFO
+"Loaded "
+<< ret.size() <<
+" class names from "
+<< fname);
+80
+81
+return
+ret;
+82
+83
+84
+// ##############################################################################################################
+85
+std::string
+jevois::dnn::getLabel
+(std::map<int, std::string>
+const
+& labels,
+int
+id
+bool
+namedonly)
+86
+87
+auto
+itr = labels.find(
+id
+);
+88
+if
+(itr == labels.end())
+89
+90
+if
+(namedonly)
+return
+std::string();
+91
+else
+return
+std::to_string(
+id
+);
+92
+93
+return
+itr->second;
+94
+95
+96
+// ##############################################################################################################
+97
+int
+jevois::dnn::stringToRGBA
+(std::string
+const
+& label,
+unsigned
+char
+alpha)
+98
+99
+int
+col = 0x80808080;
+100
+for
+char
+const
+c : label) col = c + ((col << 5) - col);
+101
+col = (col & 0xffffff) | (alpha << 24);
+102
+return
+col;
+103
+104
+105
+// ##############################################################################################################
+106
+void
+jevois::dnn::topK
+float
+const
+* pfProb,
+float
+* pfMaxProb, uint32_t * pMaxClass, uint32_t outputCount,
+107
+uint32_t topNum)
+108
+109
+memset(pfMaxProb, 0xfe,
+sizeof
+float
+) * topNum);
+110
+memset(pMaxClass, 0xff,
+sizeof
+float
+) * topNum);
+111
+112
+for
+(uint32_t j = 0; j < topNum; ++j)
+113
+114
+for
+(uint32_t i = 0; i < outputCount; ++i)
+115
+116
+uint32_t k;
+117
+for
+(k = 0; k < topNum; ++k)
+if
+(i == pMaxClass[k])
+break
+118
+if
+(k != topNum)
+continue
+119
+120
+if
+(pfProb[i] > pfMaxProb[j]) { pfMaxProb[j] = pfProb[i]; pMaxClass[j] = i; }
+121
+122
+123
+124
+125
+// ##############################################################################################################
+126
+std::string
+jevois::dnn::shapestr
+(cv::Mat
+const
+& m)
+127
+128
+cv::MatSize
+const
+& ms = m.size;
+int
+const
+nd = ms.dims();
+129
+std::string ret = std::to_string(nd) +
+"D "
+130
+for
+int
+i = 0; i < nd; ++i) ret += std::to_string(ms[i]) + (i < nd-1 ?
+"x"
+""
+);
+131
+ret +=
+' '
+jevois::cvtypestr
+(m.type());
+132
+return
+ret;
+133
+134
+135
+// ##############################################################################################################
+136
+std::string
+jevois::dnn::shapestr
+(std::vector<size_t> dims,
+int
+typ)
+137
+138
+int
+const
+nd = int(dims.size());
+139
+std::string ret = std::to_string(nd) +
+"D "
+140
+for
+int
+i = 0; i < nd; ++i) ret += std::to_string(dims[i]) + (i < nd-1 ?
+"x"
+""
+);
+141
+ret +=
+' '
+jevois::cvtypestr
+(typ);
+142
+return
+ret;
+143
+144
+145
+// ##############################################################################################################
+146
+std::string
+jevois::dnn::shapestr
+(std::vector<int> dims,
+int
+typ)
+147
+148
+int
+const
+nd = int(dims.size());
+149
+std::string ret = std::to_string(nd) +
+"D "
+150
+for
+int
+i = 0; i < nd; ++i) ret += std::to_string(dims[i]) + (i < nd-1 ?
+"x"
+""
+);
+151
+ret +=
+' '
+jevois::cvtypestr
+(typ);
+152
+return
+ret;
+153
+154
+155
+// ##############################################################################################################
+156
+std::string
+jevois::dnn::shapestr
+(TfLiteTensor
+const
+* t)
+157
+158
+159
+TfLiteIntArray
+const
+& dims = *t->dims;
+160
+std::string ret = std::to_string(dims.size) +
+"D "
+161
+for
+int
+i = 0; i < dims.size; ++i) ret += std::to_string(dims.data[i]) + (i < dims.size-1 ?
+"x"
+""
+);
+162
+163
+// Do not use TfLiteTypeGetName() as it returns different names...
+164
+switch
+(t->type)
+165
+166
+case
+kTfLiteNoType: ret +=
+" NoType"
+break
+167
+case
+kTfLiteFloat32: ret +=
+" 32F"
+break
+168
+case
+kTfLiteInt32: ret +=
+" 32S"
+break
+169
+case
+kTfLiteUInt8: ret +=
+" 8U"
+break
+170
+case
+kTfLiteInt64: ret +=
+" 64S"
+break
+171
+case
+kTfLiteString: ret +=
+" String"
+break
+172
+case
+kTfLiteBool: ret +=
+" 8B"
+break
+173
+case
+kTfLiteInt16: ret +=
+" 16S"
+break
+174
+case
+kTfLiteComplex64: ret +=
+" 64C"
+break
+175
+case
+kTfLiteInt8: ret +=
+" 8I"
+break
+176
+case
+kTfLiteFloat16: ret +=
+" 16F"
+break
+177
+case
+kTfLiteFloat64: ret +=
+" 64F"
+break
+178
+case
+kTfLiteComplex128: ret +=
+" 128C"
+break
+179
+default
+: ret +=
+" UnknownType"
+break
+180
+181
+return
+ret;
+182
+183
+184
+// ##############################################################################################################
+185
+std::string
+jevois::dnn::shapestr
+(vsi_nn_tensor_attr_t
+const
+& attr)
+186
+187
+std::string ret = std::to_string(attr.dim_num) +
+"D "
+188
+for
+(uint32_t i = 0; i < attr.dim_num; ++i)
+189
+ret += std::to_string(attr.size[attr.dim_num-1-i]) + (i < attr.dim_num-1 ?
+"x"
+""
+);
+190
+191
+// Value type:
+192
+switch
+(attr.dtype.vx_type)
+193
+194
+case
+VSI_NN_TYPE_UINT8: ret +=
+" 8U"
+break
+195
+case
+VSI_NN_TYPE_INT8: ret +=
+" 8S"
+break
+196
+case
+VSI_NN_TYPE_BOOL8: ret +=
+" 8B"
+break
+197
+case
+VSI_NN_TYPE_UINT16: ret +=
+" 16U"
+break
+198
+case
+VSI_NN_TYPE_INT16: ret +=
+" 16S"
+break
+199
+case
+VSI_NN_TYPE_FLOAT16: ret +=
+" 16F"
+break
+200
+case
+VSI_NN_TYPE_BFLOAT16: ret +=
+" 16B"
+break
+201
+case
+VSI_NN_TYPE_UINT32: ret +=
+" 32U"
+break
+202
+case
+VSI_NN_TYPE_INT32: ret +=
+" 32S"
+break
+203
+case
+VSI_NN_TYPE_FLOAT32: ret +=
+" 32F"
+break
+204
+case
+VSI_NN_TYPE_UINT64: ret +=
+" 64U"
+break
+205
+case
+VSI_NN_TYPE_INT64: ret +=
+" 64S"
+break
+206
+case
+VSI_NN_TYPE_FLOAT64: ret +=
+" 64F"
+break
+207
+default
+throw
+std::range_error(
+"shapestr: Unsupported tensor type "
++ std::to_string(attr.dtype.vx_type));
+208
+209
+210
+return
+ret;
+211
+212
+213
+#ifdef JEVOIS_PRO
+214
+// ##############################################################################################################
+215
+std::string
+jevois::dnn::shapestr
+(Ort::ConstTensorTypeAndShapeInfo
+const
+& ti)
+216
+217
+std::ostringstream os;
+218
+std::vector<int64_t> input_node_dims = ti.GetShape();
+219
+os << input_node_dims.size() <<
+"D "
+220
+for
+(int64_t d : input_node_dims) os << d <<
+'x'
+221
+os.seekp(-1, os.cur);
+// will overwrite last 'x'
+222
+223
+switch
+(ti.GetElementType())
+224
+225
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED: os <<
+" UNDEFINED"
+break
+226
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT: os <<
+" 32F"
+break
+227
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8: os <<
+" 8U"
+break
+228
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8: os <<
+" 8S"
+break
+229
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16: os <<
+" 16U"
+break
+230
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16: os <<
+" 16S"
+break
+231
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32: os <<
+" 32S"
+break
+232
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64: os <<
+" 64S"
+break
+233
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING: os <<
+" STR"
+break
+234
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL: os <<
+" BOOL"
+break
+235
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16: os <<
+" 16F"
+break
+236
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE: os <<
+" 64F"
+break
+237
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT32: os <<
+" 32U"
+break
+238
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT64: os <<
+" 64U"
+break
+239
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_COMPLEX64: os <<
+" 64CPLX"
+break
+240
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_COMPLEX128: os <<
+" 128CPLX"
+break
+241
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_BFLOAT16: os <<
+" 16B"
+break
+242
+default
+throw
+std::range_error(
+"shapestr: Unsupported tensor type "
++ std::to_string(ti.GetElementType()));
+243
+244
+245
+return
+os.str();
+246
+247
+248
+// ##############################################################################################################
+249
+vsi_nn_type_e
+jevois::dnn::onnx2vsi
+(ONNXTensorElementDataType t)
+250
+251
+switch
+(t)
+252
+253
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED:
+return
+VSI_NN_TYPE_NONE;
+254
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+return
+VSI_NN_TYPE_FLOAT32;
+255
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
+return
+VSI_NN_TYPE_UINT8;
+256
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:
+return
+VSI_NN_TYPE_INT8;
+257
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16:
+return
+VSI_NN_TYPE_UINT16;
+258
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16:
+return
+VSI_NN_TYPE_INT16;
+259
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+return
+VSI_NN_TYPE_INT32;
+260
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+return
+VSI_NN_TYPE_INT64;
+261
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
+return
+VSI_NN_TYPE_BOOL8;
+262
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16:
+return
+VSI_NN_TYPE_FLOAT16;
+263
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE:
+return
+VSI_NN_TYPE_FLOAT64;
+264
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT32:
+return
+VSI_NN_TYPE_UINT32;
+265
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT64:
+return
+VSI_NN_TYPE_UINT64;
+266
+case
+ONNX_TENSOR_ELEMENT_DATA_TYPE_BFLOAT16:
+return
+VSI_NN_TYPE_BFLOAT16;
+267
+//case ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING: // unsupported by VSI
+268
+//case ONNX_TENSOR_ELEMENT_DATA_TYPE_COMPLEX64:
+269
+//case ONNX_TENSOR_ELEMENT_DATA_TYPE_COMPLEX128:
+270
+default
+throw
+std::range_error(
+"onnx2vsi: Unsupported tensor type "
++ std::to_string(t));
+271
+272
+273
+274
+// ##############################################################################################################
+275
+vsi_nn_tensor_attr_t
+jevois::dnn::tensorattr
+(Ort::ConstTensorTypeAndShapeInfo
+const
+& ti)
+276
+277
+vsi_nn_tensor_attr_t attr; memset(&attr, 0,
+sizeof
+(attr));
+278
+attr.dtype.fmt = VSI_NN_DIM_FMT_AUTO;
+279
+attr.dtype.vx_type =
+jevois::dnn::onnx2vsi
+(ti.GetElementType());
+280
+281
+std::vector<int64_t>
+const
+dims = ti.GetShape();
+282
+size_t
+const
+ds = dims.size();
+283
+attr.dim_num = ds;
+284
+for
+size_t
+i = 0; i < ds; ++i) attr.size[ds - 1 - i] = dims[i];
+285
+286
+// FIXME: quantization not yet supported
+287
+attr.dtype.qnt_type = VSI_NN_QNT_TYPE_NONE;
+288
+289
+return
+attr;
+290
+291
+292
+// ##############################################################################################################
+293
+std::string
+jevois::dnn::shapestr
+(hailo_vstream_info_t
+const
+& vi)
+294
+295
+// FIXME: should optimize but beware that vi.shape may have different interpretations depending on NCHW vs NWCH etc
+296
+return
+shapestr
+tensorattr
+(vi));
+297
+298
+/*
+299
+std::string ret = "3D ";
+300
+switch (+ std::to_string(vi.shape[0]) + 'x' +
+301
+std::to_string(vi.shape[1]) + 'x' + std::to_string(vi.shape[2]);
+302
+303
+switch (vi.format.type)
+304
+305
+case HAILO_FORMAT_TYPE_AUTO: ret += " AUTO"; break;
+306
+case HAILO_FORMAT_TYPE_UINT8: ret += " 8U"; break;
+307
+case HAILO_FORMAT_TYPE_UINT16: ret += " 16U"; break;
+308
+case HAILO_FORMAT_TYPE_FLOAT32: ret += " 32F"; break;
+309
+default: throw std::range_error("shapestr: Unsupported tensor type " + std::to_string(vi.format));
+310
+311
+312
+return ret;
+313
+*/
+314
+315
+#endif
+316
+317
+// ##############################################################################################################
+318
+std::vector<size_t>
+jevois::dnn::strshape
+(std::string
+const
+& str)
+319
+320
+std::vector<size_t> ret;
+321
+auto
+tok =
+jevois::split
+(str,
+"x"
+);
+322
+for
+(std::string
+const
+& t : tok) ret.emplace_back(std::stoi(t));
+323
+return
+ret;
+324
+325
+326
+// ##############################################################################################################
+327
+int
+jevois::dnn::tf2cv
+(TfLiteType t)
+328
+329
+switch
+(t)
+330
+331
+case
+kTfLiteFloat32:
+return
+CV_32F;
+332
+case
+kTfLiteInt32:
+return
+CV_32S;
+333
+case
+kTfLiteUInt8:
+return
+CV_8U;
+334
+case
+kTfLiteInt16:
+return
+CV_16S;
+335
+case
+kTfLiteInt8:
+return
+CV_8S;
+336
+case
+kTfLiteFloat16:
+return
+CV_16F;
+337
+case
+kTfLiteFloat64:
+return
+CV_64F;
+338
+//case kTfLiteComplex128:
+339
+//case kTfLiteComplex64:
+340
+//case kTfLiteBool:
+341
+//case kTfLiteString:
+342
+//case kTfLiteInt64:
+343
+//case kTfLiteNoType:
+344
+default
+throw
+std::range_error(std::string(
+"tf2cv: Unsupported type "
+) + TfLiteTypeGetName(t));
+345
+346
+347
+348
+// ##############################################################################################################
+349
+int
+jevois::dnn::vsi2cv
+(vsi_nn_type_e t)
+350
+351
+switch
+(t)
+352
+353
+case
+VSI_NN_TYPE_UINT8:
+return
+CV_8U;
+354
+case
+VSI_NN_TYPE_INT8:
+return
+CV_8S;
+355
+case
+VSI_NN_TYPE_BOOL8:
+return
+CV_8U;
+356
+case
+VSI_NN_TYPE_UINT16:
+return
+CV_16U;
+357
+case
+VSI_NN_TYPE_INT16:
+return
+CV_16S;
+358
+case
+VSI_NN_TYPE_FLOAT16:
+return
+CV_16F;
+359
+//case VSI_NN_TYPE_BFLOAT16: return CV_16F; // check
+360
+//case VSI_NN_TYPE_UINT32: return CV_32U; // unsupported by opencv
+361
+case
+VSI_NN_TYPE_INT32:
+return
+CV_32S;
+362
+case
+VSI_NN_TYPE_FLOAT32:
+return
+CV_32F;
+363
+//case VSI_NN_TYPE_UINT64: return CV_64U; // unsupported by opencv
+364
+//case VSI_NN_TYPE_INT64: return CV_64S; // unsupported by opencv
+365
+case
+VSI_NN_TYPE_FLOAT64:
+return
+CV_64F;
+366
+default
+throw
+std::range_error(
+"vsi2cv: Unsupported tensor type "
++ std::to_string(t));
+367
+368
+369
+370
+// ##############################################################################################################
+371
+vsi_nn_type_e
+jevois::dnn::tf2vsi
+(TfLiteType t)
+372
+373
+switch
+(t)
+374
+375
+case
+kTfLiteFloat32:
+return
+VSI_NN_TYPE_FLOAT32;
+376
+case
+kTfLiteInt32:
+return
+VSI_NN_TYPE_INT32;
+377
+case
+kTfLiteUInt8:
+return
+VSI_NN_TYPE_UINT8;
+378
+case
+kTfLiteInt16:
+return
+VSI_NN_TYPE_INT16;
+379
+case
+kTfLiteInt8:
+return
+VSI_NN_TYPE_INT8;
+380
+case
+kTfLiteFloat16:
+return
+VSI_NN_TYPE_FLOAT16;
+381
+case
+kTfLiteFloat64:
+return
+VSI_NN_TYPE_FLOAT64;
+382
+case
+kTfLiteInt64:
+return
+VSI_NN_TYPE_INT64;
+383
+case
+kTfLiteBool:
+return
+VSI_NN_TYPE_BOOL8;
+// fixme: need to check
+384
+case
+kTfLiteNoType:
+return
+VSI_NN_TYPE_NONE;
+385
+//case kTfLiteComplex128:
+386
+//case kTfLiteComplex64:
+387
+//case kTfLiteString:
+388
+default
+throw
+std::range_error(std::string(
+"tf2vsi: Unsupported type "
+) + TfLiteTypeGetName(t));
+389
+390
+391
+392
+// ##############################################################################################################
+393
+#ifdef JEVOIS_PRO
+394
+vsi_nn_type_e
+jevois::dnn::hailo2vsi
+(hailo_format_type_t t)
+395
+396
+switch
+(t)
+397
+398
+case
+HAILO_FORMAT_TYPE_AUTO:
+return
+VSI_NN_TYPE_NONE;
+break
+// or throw?
+399
+case
+HAILO_FORMAT_TYPE_UINT8:
+return
+VSI_NN_TYPE_UINT8;
+break
+400
+case
+HAILO_FORMAT_TYPE_UINT16:
+return
+VSI_NN_TYPE_UINT16;
+break
+401
+case
+HAILO_FORMAT_TYPE_FLOAT32:
+return
+VSI_NN_TYPE_FLOAT32;
+break
+402
+default
+throw
+std::range_error(
+"hailo2vsi: Unsupported tensor type "
++ std::to_string(t));
+403
+404
+405
+#endif
+406
+407
+// ##############################################################################################################
+408
+void
+jevois::dnn::clamp
+(cv::Rect & r,
+int
+width,
+int
+height)
+409
+410
+int
+tx = std::min(width - 1, std::max(0, r.x));
+411
+int
+ty = std::min(height - 1, std::max(0, r.y));
+412
+int
+bx = std::min(width - 1, std::max(0, r.x + r.width));
+413
+int
+by = std::min(height - 1, std::max(0, r.y + r.height));
+414
+r.x = tx; r.y = ty; r.width = bx - tx; r.height = by - ty;
+415
+416
+417
+// ##############################################################################################################
+418
+void
+jevois::dnn::clamp
+(cv::Rect2f & r,
+float
+width,
+float
+height)
+419
+420
+float
+tx = std::min(width - 1.0F, std::max(0.0F, r.x));
+421
+float
+ty = std::min(height - 1.0F, std::max(0.0F, r.y));
+422
+float
+bx = std::min(width - 1.0F, std::max(0.0F, r.x + r.width));
+423
+float
+by = std::min(height - 1.0F, std::max(0.0F, r.y + r.height));
+424
+r.x = tx; r.y = ty; r.width = bx - tx; r.height = by - ty;
+425
+426
+427
+// ##############################################################################################################
+428
+std::vector<vsi_nn_tensor_attr_t>
+jevois::dnn::parseTensorSpecs
+(std::string
+const
+& specs)
+429
+430
+char
+const
+const
+specdef =
+"[NCHW:|NHWC:|NA:|AUTO:]Type:[NxCxHxW|NxHxWxC|...][:QNT[:fl|:scale:zero]]"
+431
+std::vector<std::string> spectok =
+jevois::split
+(specs,
+",\\s*"
+);
+432
+std::vector<vsi_nn_tensor_attr_t> ret;
+433
+434
+for
+(std::string
+const
+& spec : spectok)
+435
+436
+vsi_nn_tensor_attr_t attr; memset(&attr, 0,
+sizeof
+(attr));
+437
+438
+// NCHW:Type:NxCxHxW:QNT:scale:mean
+439
+std::vector<std::string> tok =
+jevois::split
+(spec,
+":"
+);
+440
+if
+(tok.size() < 2)
+throw
+std::runtime_error(
+"parseTensorSpecs: Malformed tensor spec ["
++spec+
+"] not "
++specdef);
+441
+442
+// Decode optional shape:
+443
+size_t
+n = 0;
+// next tok to parse
+444
+if
+(tok[0] ==
+"NCHW"
+) { ++n; attr.dtype.fmt = VSI_NN_DIM_FMT_NCHW; }
+// planar RGB
+445
+else
+if
+(tok[0] ==
+"NHWC"
+) { ++n; attr.dtype.fmt = VSI_NN_DIM_FMT_NHWC; }
+// packed RGB
+446
+else
+if
+(tok[0] ==
+"NA"
+) { ++n; attr.dtype.fmt = VSI_NN_DIM_FMT_NA; }
+447
+else
+if
+(tok[0] ==
+"AUTO"
+) { ++n; attr.dtype.fmt = VSI_NN_DIM_FMT_AUTO; }
+448
+else
+attr.dtype.fmt = VSI_NN_DIM_FMT_AUTO;
+// use AUTO if it was not given
+449
+450
+// We need at least type and dims:
+451
+if
+(tok.size() < n+2)
+throw
+std::runtime_error(
+"parseTensorSpecs: Malformed tensor spec ["
++spec+
+"] not "
++specdef);
+452
+453
+// Decode type and convert to vsi:
+454
+if
+(tok[n] ==
+"8U"
+) attr.dtype.vx_type = VSI_NN_TYPE_UINT8;
+455
+else
+if
+(tok[n] ==
+"8S"
+) attr.dtype.vx_type = VSI_NN_TYPE_INT8;
+456
+else
+if
+(tok[n] ==
+"8B"
+) attr.dtype.vx_type = VSI_NN_TYPE_BOOL8;
+457
+else
+if
+(tok[n] ==
+"16U"
+) attr.dtype.vx_type = VSI_NN_TYPE_UINT16;
+458
+else
+if
+(tok[n] ==
+"16S"
+) attr.dtype.vx_type = VSI_NN_TYPE_INT16;
+459
+else
+if
+(tok[n] ==
+"16F"
+) attr.dtype.vx_type = VSI_NN_TYPE_FLOAT16;
+460
+else
+if
+(tok[n] ==
+"16B"
+) attr.dtype.vx_type = VSI_NN_TYPE_BFLOAT16;
+461
+else
+if
+(tok[n] ==
+"32U"
+) attr.dtype.vx_type = VSI_NN_TYPE_UINT32;
+462
+else
+if
+(tok[n] ==
+"32S"
+) attr.dtype.vx_type = VSI_NN_TYPE_INT32;
+463
+else
+if
+(tok[n] ==
+"32F"
+) attr.dtype.vx_type = VSI_NN_TYPE_FLOAT32;
+464
+else
+if
+(tok[n] ==
+"64U"
+) attr.dtype.vx_type = VSI_NN_TYPE_UINT64;
+465
+else
+if
+(tok[n] ==
+"64S"
+) attr.dtype.vx_type = VSI_NN_TYPE_INT64;
+466
+else
+if
+(tok[n] ==
+"64F"
+) attr.dtype.vx_type = VSI_NN_TYPE_FLOAT64;
+467
+else
+throw
+std::range_error(
+"parseTensorSpecs: Invalid tensor type ["
++ tok[n] +
+"] in "
++ spec);
+468
+++n;
+// next token
+469
+470
+// Decode the dims:
+471
+std::vector<size_t> dims =
+jevois::dnn::strshape
+(tok[n]);
+472
+attr.dim_num = dims.size();
+473
+for
+size_t
+i = 0; i < attr.dim_num; ++i) attr.size[attr.dim_num - 1 - i] = dims[i];
+474
+++n;
+// next token
+475
+476
+// Decode optional quantization type and its possible extra parameters:
+477
+if
+(n == tok.size() || tok[n] ==
+"NONE"
+478
+479
+attr.dtype.qnt_type = VSI_NN_QNT_TYPE_NONE;
+480
+481
+else
+if
+(tok[n] ==
+"DFP"
+482
+483
+attr.dtype.qnt_type = VSI_NN_QNT_TYPE_DFP;
+484
+if
+(tok.size() != n+2)
+485
+throw
+std::range_error(
+"parseTensorSpecs: In "
++spec+
+", DFP quantization needs :fl ("
++ specdef +
+')'
+);
+486
+attr.dtype.fl = std::stoi(tok[n+1]);
+487
+488
+489
+else
+if
+(tok[n] ==
+"AA"
+|| tok[n] ==
+"AS"
+// affine asymmetric and symmetric same, see ovxlib/vsi_nn_tensor.h
+490
+491
+attr.dtype.qnt_type = VSI_NN_QNT_TYPE_AFFINE_ASYMMETRIC;
+492
+if
+(tok.size() != n+3)
+493
+throw
+std::range_error(
+"parseTensorSpecs: In "
++spec+
+", AA/AS quantization needs :scale:zero ("
++specdef+
+')'
+);
+494
+attr.dtype.scale = std::stof(tok[n+1]);
+495
+attr.dtype.zero_point = std::stoi(tok[n+2]);
+496
+497
+else
+if
+(tok[n] ==
+"APS"
+498
+499
+attr.dtype.qnt_type = VSI_NN_QNT_TYPE_AFFINE_PERCHANNEL_SYMMETRIC;
+500
+throw
+std::range_error(
+"parseTensorSpecs: In "
++ spec +
+", AFFINE_PERCHANNEL_SYMMETRIC quant not yet supported"
+);
+501
+502
+else
+throw
+std::range_error(
+"parseTensorSpecs: Invalid quantization type in "
++ spec);
+503
+504
+// Done with this tensor:
+505
+ret.emplace_back(attr);
+506
+507
+508
+return
+ret;
+509
+510
+511
+// ##############################################################################################################
+512
+cv::Mat
+jevois::dnn::attrmat
+(vsi_nn_tensor_attr_t
+const
+& attr,
+void
+* dataptr)
+513
+514
+if
+(dataptr)
+return
+cv::Mat(
+jevois::dnn::attrdims
+(attr),
+jevois::dnn::vsi2cv
+(attr.dtype.vx_type), dataptr);
+515
+else
+return
+cv::Mat(
+jevois::dnn::attrdims
+(attr),
+jevois::dnn::vsi2cv
+(attr.dtype.vx_type));
+516
+517
+518
+// ##############################################################################################################
+519
+std::vector<int>
+jevois::dnn::attrdims
+(vsi_nn_tensor_attr_t
+const
+& attr)
+520
+521
+size_t
+const
+ndim = attr.dim_num;
+522
+std::vector<int> cvdims(ndim);
+523
+for
+size_t
+i = 0; i < ndim; ++i) cvdims[ndim - 1 - i] = attr.size[i];
+524
+return
+cvdims;
+525
+526
+527
+// ##############################################################################################################
+528
+cv::Size
+jevois::dnn::attrsize
+(vsi_nn_tensor_attr_t
+const
+& attr)
+529
+530
+switch
+(attr.dtype.fmt)
+531
+532
+case
+VSI_NN_DIM_FMT_NHWC:
+533
+if
+(attr.dim_num < 3)
+throw
+std::range_error(
+"attrsize: need at least 3D, got "
+jevois::dnn::attrstr
+(attr));
+534
+return
+cv::Size(attr.size[1], attr.size[2]);
+535
+536
+case
+VSI_NN_DIM_FMT_NCHW:
+537
+if
+(attr.dim_num < 2)
+throw
+std::range_error(
+"attrsize: need at least 2D, got "
+jevois::dnn::attrstr
+(attr));
+538
+return
+cv::Size(attr.size[0], attr.size[1]);
+539
+540
+case
+VSI_NN_DIM_FMT_AUTO:
+541
+if
+(attr.dim_num < 2)
+return
+cv::Size(attr.size[0], 1);
+542
+if
+(attr.dim_num < 3)
+return
+cv::Size(attr.size[0], attr.size[1]);
+543
+// ok, size[] starts with either CWH (when dim index goes 0..2) or WHC, assume C<H
+544
+if
+(attr.size[0] > attr.size[2])
+return
+cv::Size(attr.size[0], attr.size[1]);
+// WHCN
+545
+else
+return
+cv::Size(attr.size[1], attr.size[2]);
+// CWHN
+546
+547
+default
+548
+throw
+std::range_error(
+"attrsize: cannot extract width and height, got "
+jevois::dnn::attrstr
+(attr));
+549
+550
+551
+552
+// ##############################################################################################################
+553
+std::string
+jevois::dnn::attrstr
+(vsi_nn_tensor_attr_t
+const
+& attr)
+554
+555
+std::string ret;
+556
+557
+// Dimension ordering, only relevant for 3D and higher:
+558
+if
+(attr.dim_num > 2)
+559
+switch
+(attr.dtype.fmt)
+560
+561
+case
+VSI_NN_DIM_FMT_NCHW: ret =
+"NCHW:"
+break
+562
+case
+VSI_NN_DIM_FMT_NHWC: ret =
+"NHWC:"
+break
+563
+default
+break
+564
+565
+566
+// Value type:
+567
+switch
+(attr.dtype.vx_type)
+568
+569
+case
+VSI_NN_TYPE_UINT8: ret +=
+"8U:"
+break
+570
+case
+VSI_NN_TYPE_INT8: ret +=
+"8S:"
+break
+571
+case
+VSI_NN_TYPE_BOOL8: ret +=
+"8B:"
+break
+572
+case
+VSI_NN_TYPE_UINT16: ret +=
+"16U:"
+break
+573
+case
+VSI_NN_TYPE_INT16: ret +=
+"16S:"
+break
+574
+case
+VSI_NN_TYPE_FLOAT16: ret +=
+"16F:"
+break
+575
+case
+VSI_NN_TYPE_BFLOAT16: ret +=
+"16B:"
+break
+576
+case
+VSI_NN_TYPE_UINT32: ret +=
+"32U:"
+break
+577
+case
+VSI_NN_TYPE_INT32: ret +=
+"32S:"
+break
+578
+case
+VSI_NN_TYPE_FLOAT32: ret +=
+"32F:"
+break
+579
+case
+VSI_NN_TYPE_UINT64: ret +=
+"64U:"
+break
+580
+case
+VSI_NN_TYPE_INT64: ret +=
+"64S:"
+break
+581
+case
+VSI_NN_TYPE_FLOAT64: ret +=
+"64F:"
+break
+582
+default
+: ret +=
+"TYPE_UNKNOWN:"
+583
+584
+585
+// Dims:
+586
+for
+(uint32_t i = 0; i < attr.dim_num; ++i)
+587
+ret += std::to_string(attr.size[attr.dim_num - 1 - i]) + ((i<attr.dim_num-1) ?
+'x'
+':'
+);
+588
+589
+// Quantization:
+590
+switch
+(attr.dtype.qnt_type)
+591
+592
+case
+VSI_NN_QNT_TYPE_NONE: ret +=
+"NONE"
+break
+593
+case
+VSI_NN_QNT_TYPE_DFP: ret +=
+"DFP:"
++ std::to_string(attr.dtype.fl);
+break
+594
+case
+VSI_NN_QNT_TYPE_AFFINE_ASYMMETRIC:
+// same value as VSI_NN_QNT_TYPE_AFFINE_SYMMETRIC:
+595
+ret +=
+"AA:"
++ std::to_string(attr.dtype.scale) +
+':'
++ std::to_string(attr.dtype.zero_point);
+596
+break
+597
+case
+VSI_NN_QNT_TYPE_AFFINE_PERCHANNEL_SYMMETRIC: ret +=
+"APS:unsupported"
+break
+598
+default
+: ret +=
+"QUANT_UNKNOWN"
+599
+600
+601
+return
+ret;
+602
+603
+604
+// ##############################################################################################################
+605
+vsi_nn_tensor_attr_t
+jevois::dnn::tensorattr
+(TfLiteTensor
+const
+* t)
+606
+607
+vsi_nn_tensor_attr_t attr; memset(&attr, 0,
+sizeof
+(attr));
+608
+attr.dtype.fmt = VSI_NN_DIM_FMT_AUTO;
+609
+attr.dtype.vx_type =
+jevois::dnn::tf2vsi
+(t->type);
+610
+611
+switch
+(t->quantization.type)
+612
+613
+case
+kTfLiteNoQuantization:
+614
+attr.dtype.qnt_type = VSI_NN_QNT_TYPE_NONE;
+615
+break
+616
+617
+case
+kTfLiteAffineQuantization:
+618
+619
+attr.dtype.qnt_type = VSI_NN_QNT_TYPE_AFFINE_ASYMMETRIC;
+620
+attr.dtype.scale = t->params.scale;
+621
+attr.dtype.zero_point = t->params.zero_point;
+622
+623
+break
+624
+625
+default
+LFATAL
+"unsupported quantization "
+<< t->quantization.type);
+626
+627
+628
+TfLiteIntArray
+const
+& dims = *t->dims;
+629
+attr.dim_num = dims.size;
+630
+for
+int
+i = 0; i < dims.size; ++i) attr.size[dims.size - 1 - i] = dims.data[i];
+631
+632
+// Set the fmt to NCHW or NHWC if possible:
+633
+if
+(attr.dim_num == 4)
+634
+635
+if
+(attr.size[0] > attr.size[2]) attr.dtype.fmt = VSI_NN_DIM_FMT_NCHW;
+// assume H>C
+636
+else
+attr.dtype.fmt = VSI_NN_DIM_FMT_NHWC;
+637
+638
+639
+return
+attr;
+640
+641
+642
+// ##############################################################################################################
+643
+#ifdef JEVOIS_PRO
+644
+vsi_nn_tensor_attr_t
+jevois::dnn::tensorattr
+(hailo_vstream_info_t
+const
+& vi)
+645
+646
+vsi_nn_tensor_attr_t attr; memset(&attr, 0,
+sizeof
+(attr));
+647
+648
+attr.dtype.vx_type =
+hailo2vsi
+(vi.format.type);
+649
+650
+switch
+(vi.format.order)
+651
+652
+case
+HAILO_FORMAT_ORDER_HAILO_NMS:
+653
+attr.dtype.fmt = VSI_NN_DIM_FMT_AUTO;
+654
+attr.dim_num = 2;
+655
+attr.size[0] = vi.nms_shape.number_of_classes;
+656
+attr.size[1] = vi.nms_shape.max_bboxes_per_class * 5;
+// Each box has: xmin, ymin, xmax, ymax, score
+657
+break
+658
+659
+case
+HAILO_FORMAT_ORDER_NHWC:
+660
+case
+HAILO_FORMAT_ORDER_FCR:
+661
+case
+HAILO_FORMAT_ORDER_F8CR:
+662
+attr.dtype.fmt = VSI_NN_DIM_FMT_NHWC;
+663
+attr.dim_num = 4;
+664
+attr.size[0] = vi.shape.features;
+665
+attr.size[1] = vi.shape.width;
+666
+attr.size[2] = vi.shape.height;
+667
+attr.size[3] = 1;
+668
+break
+669
+670
+case
+HAILO_FORMAT_ORDER_NHW:
+671
+attr.dtype.fmt = VSI_NN_DIM_FMT_NHWC;
+672
+attr.dim_num = 4;
+673
+attr.size[0] = 1;
+674
+attr.size[1] = vi.shape.width;
+675
+attr.size[2] = vi.shape.height;
+676
+attr.size[3] = 1;
+677
+break
+678
+679
+case
+HAILO_FORMAT_ORDER_NC:
+680
+attr.dtype.fmt = VSI_NN_DIM_FMT_NHWC;
+681
+attr.dim_num = 4;
+682
+attr.size[0] = 1;
+683
+attr.size[1] = 1;
+684
+attr.size[2] = vi.shape.features;
+685
+attr.size[3] = 1;
+686
+break
+687
+688
+case
+HAILO_FORMAT_ORDER_NCHW:
+689
+attr.dtype.fmt = VSI_NN_DIM_FMT_NCHW;
+690
+attr.dim_num = 4;
+691
+attr.size[0] = vi.shape.features;
+692
+attr.size[1] = vi.shape.width;
+693
+attr.size[2] = vi.shape.height;
+694
+attr.size[3] = 1;
+695
+break
+696
+697
+default
+throw
+std::range_error(
+"tensorattr: Unsupported Hailo order "
++std::to_string(vi.format.order));
+698
+699
+700
+// Hailo only supports one quantization type:
+701
+attr.dtype.qnt_type = VSI_NN_QNT_TYPE_AFFINE_ASYMMETRIC;
+702
+attr.dtype.scale = vi.quant_info.qp_scale;
+703
+attr.dtype.zero_point = int32_t(vi.quant_info.qp_zp);
+704
+705
+return
+attr;
+706
+707
+#endif
+708
+709
+// ##############################################################################################################
+710
+namespace
+711
+712
+struct
+ParallelSigmoid :
+public
+cv::ParallelLoopBody
+713
+714
+ParallelSigmoid(
+float
+* ptr) : p(ptr)
+715
+{ }
+716
+717
+virtual
+void
+operator()(cv::Range
+const
+& r)
+const
+718
+for
+int
+i = r.start; i != r.end; ++i) p[i] =
+jevois::dnn::sigmoid
+(p[i]); }
+719
+720
+private
+721
+float
+*p;
+722
+};
+723
+724
+725
+void
+jevois::dnn::sigmoid
+(cv::Mat & m)
+726
+727
+if
+(m.type() != CV_32F)
+LFATAL
+"Can only apply to CV_32F tensors"
+);
+728
+729
+cv::parallel_for_(cv::Range(0, m.total()), ParallelSigmoid((
+float
+*)m.data));
+730
+731
+732
+// ##############################################################################################################
+733
+size_t
+jevois::dnn::softmax
+float
+const
+* input,
+size_t
+const
+n,
+size_t
+const
+stride,
+float
+const
+fac,
+float
+* output,
+734
+bool
+maxonly)
+735
+736
+if
+(stride == 0)
+LFATAL
+"Cannot work with stride = 0"
+);
+737
+738
+float
+sum = 0.0F;
+739
+float
+largest = -FLT_MAX;
+size_t
+largest_idx = 0;
+740
+size_t
+const
+ns = n * stride;
+741
+742
+for
+size_t
+i = 0; i < ns; i += stride)
+if
+(input[i] > largest) { largest = input[i]; largest_idx = i; }
+743
+744
+if
+(fac == 1.0F)
+745
+for
+size_t
+i = 0; i < ns; i += stride)
+746
+747
+float
+const
+e =
+jevois::dnn::fastexp
+(input[i] - largest);
+748
+sum += e;
+749
+output[i] = e;
+750
+751
+else
+752
+for
+size_t
+i = 0; i < ns; i += stride)
+753
+754
+float
+const
+e =
+jevois::dnn::fastexp
+(input[i]/fac - largest/fac);
+755
+sum += e;
+756
+output[i] = e;
+757
+758
+759
+if
+(sum)
+760
+761
+if
+(maxonly) output[largest_idx] /= sum;
+762
+else
+for
+size_t
+i = 0; i < ns; i += stride) output[i] /= sum;
+763
+764
+765
+return
+largest_idx;
+766
+767
+768
+// ##############################################################################################################
+769
+float
+jevois::dnn::softmax_dfl
+float
+const
+* src,
+float
+* dst,
+size_t
+const
+n,
+size_t
+const
+stride)
+770
+771
+// inspired from https://github.com/trinhtuanvubk/yolo-ncnn-cpp/blob/main/yolov8/yolov8.cpp
+772
+size_t
+const
+ns = n * stride;
+773
+774
+float
+alpha = -FLT_MAX;
+775
+for
+size_t
+c = 0; c < ns; c += stride)
+776
+777
+float
+score = src[c];
+778
+if
+(score > alpha) alpha = score;
+779
+780
+781
+float
+denominator = 0;
+782
+float
+dis_sum = 0;
+783
+float
+* dp = dst;
+784
+785
+for
+size_t
+i = 0; i < ns; i += stride)
+786
+787
+*dp =
+jevois::dnn::fastexp
+(src[i] - alpha);
+788
+denominator += *dp++;
+789
+790
+791
+if
+(denominator == 0.0F)
+return
+0.0F;
+792
+793
+for
+size_t
+i = 0; i < n; ++i)
+794
+795
+dst[i] /= denominator;
+796
+dis_sum += i * dst[i];
+797
+798
+return
+dis_sum;
+799
+800
+801
+// ##############################################################################################################
+802
+bool
+jevois::dnn::attrmatch
+(vsi_nn_tensor_attr_t
+const
+& attr, cv::Mat
+const
+& blob)
+803
+804
+// Check that blob and tensor are a complete match:
+805
+if
+(blob.channels() != 1)
+return
+false
+806
+if
+(blob.depth() !=
+jevois::dnn::vsi2cv
+(attr.dtype.vx_type))
+return
+false
+807
+if
+(uint32_t(blob.size.dims()) != attr.dim_num)
+return
+false
+808
+809
+for
+size_t
+i = 0; i < attr.dim_num; ++i)
+810
+if
+int
+(attr.size[attr.dim_num - 1 - i]) != blob.size[i])
+return
+false
+811
+812
+return
+true
+813
+814
+815
+// ##############################################################################################################
+816
+cv::Mat
+jevois::dnn::quantize
+(cv::Mat
+const
+& m, vsi_nn_tensor_attr_t
+const
+& attr)
+817
+818
+if
+(m.depth() != CV_32F)
+LFATAL
+"Tensor to quantize must be 32F"
+);
+819
+820
+// Do a sloppy match for total size only since m may still be 2D RGB packed vs 4D attr...
+821
+std::vector<int> adims =
+jevois::dnn::attrdims
+(attr);
+822
+size_t
+tot = 1;
+for
+int
+d : adims) tot *= d;
+823
+824
+if
+(tot != m.total() * m.channels())
+825
+LFATAL
+"Mismatched tensor: "
+<<
+jevois::dnn::shapestr
+(m) <<
+" vs attr: "
+<<
+jevois::dnn::shapestr
+(attr));
+826
+827
+unsigned
+int
+const
+tt =
+jevois::dnn::vsi2cv
+(attr.dtype.vx_type);
+828
+829
+switch
+(attr.dtype.qnt_type)
+830
+831
+case
+VSI_NN_QNT_TYPE_NONE:
+832
+833
+cv::Mat ret;
+834
+m.convertTo(ret, tt);
+835
+return
+ret;
+836
+837
+838
+case
+VSI_NN_QNT_TYPE_DFP:
+839
+840
+switch
+(tt)
+841
+842
+case
+CV_8S:
+843
+844
+if
+(attr.dtype.fl > 7)
+LFATAL
+"Invalid DFP fl value "
+<< attr.dtype.fl <<
+": must be in [0..7]"
+);
+845
+cv::Mat ret;
+846
+m.convertTo(ret, tt, 1 << attr.dtype.fl, 0.0);
+847
+return
+ret;
+848
+849
+case
+CV_16S:
+850
+851
+if
+(attr.dtype.fl > 15)
+LFATAL
+"Invalid DFP fl value "
+<< attr.dtype.fl <<
+": must be in [0..15]"
+);
+852
+cv::Mat ret;
+853
+m.convertTo(ret, tt, 1 << attr.dtype.fl, 0.0);
+854
+return
+ret;
+855
+856
+default
+break
+// will LFATAL() below
+857
+858
+break
+859
+860
+861
+case
+VSI_NN_QNT_TYPE_AFFINE_ASYMMETRIC:
+// same value as VSI_NN_QNT_TYPE_AFFINE_SYMMETRIC:
+862
+863
+switch
+(tt)
+864
+865
+case
+CV_8U:
+866
+867
+cv::Mat ret;
+868
+if
+(attr.dtype.scale == 0.0)
+LFATAL
+"Quantization scale must not be zero in "
+<<
+jevois::dnn::shapestr
+(attr));
+869
+m.convertTo(ret, tt, 1.0 / attr.dtype.scale, attr.dtype.zero_point);
+870
+return
+ret;
+871
+872
+873
+default
+break
+// will LFATAL() below
+874
+875
+break
+876
+877
+878
+case
+VSI_NN_QNT_TYPE_AFFINE_PERCHANNEL_SYMMETRIC:
+879
+LFATAL
+"Affine per-channel symmetric not supported yet"
+);
+880
+881
+default
+break
+// will LFATAL() below
+882
+883
+884
+LFATAL
+"Quantization to "
+<<
+jevois::dnn::shapestr
+(attr) <<
+" not yet supported"
+);
+885
+886
+887
+// ##############################################################################################################
+888
+cv::Mat
+jevois::dnn::dequantize
+(cv::Mat
+const
+& m, vsi_nn_tensor_attr_t
+const
+& attr)
+889
+890
+if
+(!
+jevois::dnn::attrmatch
+(attr, m))
+891
+LFATAL
+"Mismatched tensor: "
+<<
+jevois::dnn::shapestr
+(m) <<
+" vs attr: "
+<<
+jevois::dnn::shapestr
+(attr));
+892
+893
+switch
+(attr.dtype.qnt_type)
+894
+895
+case
+VSI_NN_QNT_TYPE_NONE:
+896
+897
+cv::Mat ret;
+898
+m.convertTo(ret, CV_32F);
+899
+return
+ret;
+900
+901
+902
+case
+VSI_NN_QNT_TYPE_DFP:
+903
+904
+cv::Mat ret;
+905
+m.convertTo(ret, CV_32F, 1.0 / (1 << attr.dtype.fl), 0.0);
+906
+return
+ret;
+907
+908
+909
+case
+VSI_NN_QNT_TYPE_AFFINE_ASYMMETRIC:
+// same value as VSI_NN_QNT_TYPE_AFFINE_SYMMETRIC:
+910
+911
+cv::Mat ret;
+912
+double
+const
+alpha = attr.dtype.scale;
+913
+double
+const
+beta = - alpha * attr.dtype.zero_point;
+914
+m.convertTo(ret, CV_32F, alpha, beta);
+915
+return
+ret;
+916
+917
+918
+case
+VSI_NN_QNT_TYPE_AFFINE_PERCHANNEL_SYMMETRIC:
+919
+LFATAL
+"Affine per-channel symmetric not supported yet"
+);
+920
+921
+default
+922
+LFATAL
+"Unknown quantization type "
+<<
+int
+(attr.dtype.qnt_type));
+923
+924
+925
+926
+// ##############################################################################################################
+927
+size_t
+jevois::dnn::effectiveDims
+(cv::Mat
+const
+& m)
+928
+929
+cv::MatSize
+const
+& rs = m.size;
+930
+size_t
+const
+ndims = rs.dims();
+931
+size_t
+ret = ndims;
+932
+for
+size_t
+i = 0; i < ndims; ++i)
+if
+(rs[i] == 1) --ret;
+else
+break
+933
+return
+ret;
+934
+935
+936
+// ##############################################################################################################
+937
+cv::Mat
+jevois::dnn::concatenate
+(std::vector<cv::Mat>
+const
+& tensors,
+int
+axis)
+938
+939
+if
+(tensors.empty())
+return
+cv::Mat();
+940
+if
+(tensors.size() == 1)
+return
+tensors[0];
+941
+942
+cv::MatSize
+const
+& ms = tensors[0].size;
+943
+int
+const
+ndims = ms.dims();
+944
+auto
+const
+typ = tensors[0].type();
+945
+946
+// Convert negative axis to positive and check within bounds:
+947
+if
+(axis < - ndims || axis >= ndims)
+948
+LFATAL
+"Incorrect axis "
+<< axis <<
+": must be in ["
+<< -ndims <<
+" ... "
+<< ndims - 1 <<
+']'
+);
+949
+if
+(axis < 0) axis = ndims - axis;
+950
+951
+// Check number of dimensions and data type; compute new size along concatenated axis:
+952
+size_t
+newsize = tensors[0].size[axis];
+953
+954
+for
+size_t
+i = 1; i < tensors.size(); ++i)
+955
+956
+if
+(tensors[i].type() != typ)
+957
+LFATAL
+"Mismatched tensor types: tensors[0] is "
+<<
+jevois::cvtypestr
+(typ) <<
+" while tensors["
+<< i <<
+958
+"] is "
+<<
+jevois::cvtypestr
+(tensors[i].type()));
+959
+960
+if
+(tensors[i].size.dims() != ndims)
+961
+LFATAL
+"Mismatched number of dimensions: "
+<< ndims <<
+" for tensors[0] vs. "
+<<
+962
+tensors[i].size.dims() <<
+" for tensors["
+<< i <<
+']'
+);
+963
+964
+newsize += tensors[i].size[axis];
+965
+966
+967
+// Check that all other dims match:
+968
+for
+int
+a = 0; a < ndims; ++a)
+969
+if
+(a != axis)
+970
+for
+size_t
+i = 1; i < tensors.size(); ++i)
+971
+if
+(tensors[i].size[a] != ms[a])
+972
+LFATAL
+"Mismatched size for axis "
+<< a <<
+": tensors[0] has "
+<< ms[a] <<
+" while tensors["
+<<
+973
+i <<
+"] has "
+<< tensors[i].size[a]);
+974
+975
+// Ready to go. Caution: copying a cv::MatSize does not copy its array of dims:
+976
+int
+newdims[ndims];
+for
+int
+i = 0; i < ndims; ++i) newdims[i] = ms.p[i];
+977
+newdims[axis] = newsize;
+978
+cv::Mat ret(ndims, newdims, typ);
+979
+unsigned
+char
+* optr = ret.data;
+980
+981
+size_t
+numcopy = 1;
+for
+int
+a = 0; a < axis; ++a) numcopy *= ms[a];
+982
+size_t
+elemsize =
+jevois::cvBytesPerPix
+(typ);
+for
+int
+a = axis + 1; a < ndims; ++a) elemsize *= ms[a];
+983
+984
+for
+size_t
+n = 0; n < numcopy; ++n)
+985
+for
+size_t
+i = 0; i < tensors.size(); ++i)
+986
+987
+size_t
+const
+axsize = tensors[i].size[axis];
+988
+unsigned
+char
+const
+* sptr = tensors[i].data + n * elemsize * axsize;
+989
+std::memcpy(optr, sptr, elemsize * axsize);
+990
+optr += elemsize * axsize;
+991
+992
+993
+return
+ret;
+994
+995
+996
+// ##############################################################################################################
+997
+std::vector<cv::Mat>
+jevois::dnn::split
+(cv::Mat
+const
+& tensor,
+int
+axis, std::vector<int>
+const
+& sizes)
+998
+999
+cv::MatSize
+const
+& ms = tensor.size;
+1000
+int
+const
+ndims = ms.dims();
+1001
+auto
+const
+typ = tensor.type();
+1002
+int
+const
+nsplit = sizes.size();
+1003
+1004
+// Convert negative axis to positive and check within bounds:
+1005
+if
+(axis < - ndims || axis >= ndims)
+1006
+LFATAL
+"Incorrect axis "
+<< axis <<
+": must be in ["
+<< -ndims <<
+" ... "
+<< ndims - 1 <<
+1007
+" for given tensor "
+<<
+jevois::dnn::shapestr
+(tensor));
+1008
+if
+(axis < 0) axis = ndims - axis;
+1009
+1010
+// Handle trivial cases:
+1011
+std::vector<cv::Mat> ret;
+1012
+if
+(nsplit == 0)
+return
+ret;
+1013
+if
+(nsplit == 1)
+1014
+1015
+if
+(sizes[0] == ms[axis]) { ret.emplace_back(tensor);
+return
+ret; }
+1016
+else
+LFATAL
+"Desired new size "
+<< sizes[0] <<
+" for axis "
+<< axis <<
+" with only one output tensor must match "
+1017
+"source size for that axis, but source is "
+<<
+jevois::dnn::shapestr
+(tensor));
+1018
+1019
+1020
+// Check that all given sizes add up, allocate mats, sizes, out pointers:
+1021
+unsigned
+char
+* optr[nsplit];
+size_t
+copysize[nsplit];
+1022
+int
+sum = 0;
+1023
+size_t
+numcopy = 1;
+for
+int
+a = 0; a < axis; ++a) numcopy *= ms[a];
+1024
+size_t
+elemsize =
+jevois::cvBytesPerPix
+(typ);
+for
+int
+a = axis + 1; a < ndims; ++a) elemsize *= ms[a];
+1025
+1026
+// Caution: copying a cv::MatSize does not copy its array of dims
+1027
+int
+newdims[ndims];
+for
+int
+i = 0; i < ndims; ++i) newdims[i] = ms.p[i];
+1028
+1029
+// Do the split:
+1030
+for
+int
+i = 0; i < nsplit; ++i)
+1031
+1032
+int
+const
+s = sizes[i];
+1033
+newdims[axis] = s; ret.emplace_back(cv::Mat(ndims, newdims, typ));
+1034
+optr[i] = ret.back().data;
+1035
+copysize[i] = s * elemsize;
+1036
+sum += s;
+1037
+1038
+1039
+if
+(sum != ms[axis])
+1040
+LFATAL
+"Given sizes ["
+<<
+jevois::join
+(sizes,
+", "
+) <<
+"] do not add up to original size of axis "
+<<
+1041
+axis <<
+" for tensor "
+<<
+jevois::dnn::shapestr
+(tensor));
+1042
+1043
+// Good to go, split it, we have at least 2 output tensors at this point:
+1044
+unsigned
+char
+const
+* sptr = tensor.data;
+1045
+for
+size_t
+n = 0; n < numcopy; ++n)
+1046
+for
+int
+j = 0; j < nsplit; ++j)
+1047
+1048
+size_t
+const
+cs = copysize[j];
+1049
+std::memcpy(optr[j], sptr, cs);
+1050
+sptr += cs; optr[j] += cs;
+1051
+1052
+1053
+return
+ret;
+1054
+JEVOIS_SHARE_PATH
+#define JEVOIS_SHARE_PATH
+Base path for shared files (e.g., neural network weights, etc)
+Definition
+Config.H:82
+Utils.H
+Log.H
+Utils.H
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+LERROR
+#define LERROR(msg)
+Convenience macro for users to print out console or syslog messages, ERROR level.
+Definition
+Log.H:211
+LINFO
+#define LINFO(msg)
+Convenience macro for users to print out console or syslog messages, INFO level.
+Definition
+Log.H:194
+jevois::dnn::fastexp
+float fastexp(float x)
+Compute fast exponential using approximation formula.
+jevois::dnn::tf2cv
+int tf2cv(TfLiteType t)
+Convert from TensorFlow data type to OpenCV.
+Definition
+Utils.C:327
+jevois::dnn::getClassLabels
+std::map< int, std::string > getClassLabels(std::string const &arg)
+Get class labels from either a list or a file.
+Definition
+Utils.C:25
+jevois::dnn::vsi2cv
+int vsi2cv(vsi_nn_type_e t)
+Convert from NPU data type to OpenCV.
+Definition
+Utils.C:349
+jevois::dnn::softmax
+size_t softmax(float const *input, size_t const n, size_t const stride, float const fac, float *output, bool maxonly)
+Apply softmax to a float vector.
+Definition
+Utils.C:733
+jevois::dnn::tensorattr
+vsi_nn_tensor_attr_t tensorattr(TfLiteTensor const *t)
+Get tensor shape and type attributes for a TensorFlow Lite tensor.
+Definition
+Utils.C:605
+jevois::dnn::getLabel
+std::string getLabel(std::map< int, std::string > const &labels, int id, bool namedonly=false)
+Get a label from an id.
+Definition
+Utils.C:85
+jevois::dnn::quantize
+cv::Mat quantize(cv::Mat const &m, vsi_nn_tensor_attr_t const &attr)
+Quantize from float32 to fixed-point according to the quantization spec in attr.
+Definition
+Utils.C:816
+jevois::dnn::readLabelsFile
+std::map< int, std::string > readLabelsFile(std::string const &fname)
+Read a label file.
+Definition
+Utils.C:42
+jevois::dnn::sigmoid
+float sigmoid(float x)
+Compute sigmoid using fastexp.
+jevois::dnn::onnx2vsi
+vsi_nn_type_e onnx2vsi(ONNXTensorElementDataType t)
+Convert from ONNX-Runtime data type to vsi_nn.
+Definition
+Utils.C:249
+jevois::dnn::split
+std::vector< cv::Mat > split(cv::Mat const &tensor, int axis, std::vector< int > const &sizes)
+Split a tensor into several, along a given axis.
+Definition
+Utils.C:997
+jevois::dnn::parseTensorSpecs
+std::vector< vsi_nn_tensor_attr_t > parseTensorSpecs(std::string const &specs)
+Parse tensor specification.
+Definition
+Utils.C:428
+jevois::dnn::clamp
+void clamp(cv::Rect &r, int width, int height)
+Clamp a rectangle to within given image width and height.
+Definition
+Utils.C:408
+jevois::dnn::attrstr
+std::string attrstr(vsi_nn_tensor_attr_t const &attr)
+Get a string describing the specs of a tensor, including quantification specs (not provided by shapes...
+Definition
+Utils.C:553
+jevois::dnn::softmax_dfl
+float softmax_dfl(float const *src, float *dst, size_t const n, size_t const stride=1)
+Compute softmax and return DFL distance.
+Definition
+Utils.C:769
+jevois::dnn::attrmat
+cv::Mat attrmat(vsi_nn_tensor_attr_t const &attr, void *dataptr=nullptr)
+Construct a cv::Mat from attr and possibly data pointer.
+Definition
+Utils.C:512
+jevois::dnn::effectiveDims
+size_t effectiveDims(cv::Mat const &m)
+Returns the number of non-unit dims in a cv::Mat.
+Definition
+Utils.C:927
+jevois::dnn::hailo2vsi
+vsi_nn_type_e hailo2vsi(hailo_format_type_t t)
+Convert from Hailo data type to vsi_nn.
+Definition
+Utils.C:394
+jevois::dnn::concatenate
+cv::Mat concatenate(std::vector< cv::Mat > const &tensors, int axis)
+Concatenate several tensors into one.
+Definition
+Utils.C:937
+jevois::dnn::stringToRGBA
+int stringToRGBA(std::string const &label, unsigned char alpha=128)
+Compute a color from a label name.
+Definition
+Utils.C:97
+jevois::dnn::attrsize
+cv::Size attrsize(vsi_nn_tensor_attr_t const &attr)
+Get a tensor's (width, height) size in cv::Size format, skipping over other dimensions.
+Definition
+Utils.C:528
+jevois::dnn::dequantize
+cv::Mat dequantize(cv::Mat const &m, vsi_nn_tensor_attr_t const &attr)
+Dequantize an output to float32 according to the quantization spec in attr.
+Definition
+Utils.C:888
+jevois::dnn::tf2vsi
+vsi_nn_type_e tf2vsi(TfLiteType t)
+Convert from TensorFlow data type to vsi_nn.
+Definition
+Utils.C:371
+jevois::dnn::topK
+void topK(float const *pfProb, float *pfMaxProb, uint32_t *pMaxClass, uint32_t outputCount, uint32_t topNum)
+Get top-k entries and their indices.
+Definition
+Utils.C:106
+jevois::dnn::shapestr
+std::string shapestr(cv::Mat const &m)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional cv::Mat with data type TYPE.
+Definition
+Utils.C:126
+jevois::dnn::attrdims
+std::vector< int > attrdims(vsi_nn_tensor_attr_t const &attr)
+Get a tensor dims as a vector of int, useful to construct a matching cv::Mat.
+Definition
+Utils.C:519
+jevois::dnn::strshape
+std::vector< size_t > strshape(std::string const &str)
+Get a vector of size_t from a string containing AxBxC...
+Definition
+Utils.C:318
+jevois::dnn::attrmatch
+bool attrmatch(vsi_nn_tensor_attr_t const &attr, cv::Mat const &blob)
+Check that a cv::Mat blob matches exactly the spec of an attr.
+Definition
+Utils.C:802
+jevois::cvBytesPerPix
+unsigned int cvBytesPerPix(unsigned int cvtype)
+Return the number of bytes per pixel for a given OpenCV pixel type.
+Definition
+Utils.C:89
+jevois::cvtypestr
+std::string cvtypestr(unsigned int cvtype)
+Convert cv::Mat::type() code to to a string (e.g., CV_8UC1, CV_32SC3, etc)
+Definition
+Utils.C:58
+jevois::join
+std::string join(std::vector< T > const &tokens, std::string const &delimiter)
+Concatenate a vector of tokens into a string.
+jevois::replaceStringAll
+size_t replaceStringAll(std::string &str, std::string const &from, std::string const &to)
+Replace all instances of 'from' with 'to'.
+Definition
+Utils.C:345
+jevois::absolutePath
+std::filesystem::path absolutePath(std::filesystem::path const &root, std::filesystem::path const &path)
+Compute an absolute path from two paths.
+Definition
+Utils.C:386
+jevois::split
+std::vector< std::string > split(std::string const &input, std::string const &regex="\\s+")
+Split string into vector of tokens using a regex to specify what to split on; default regex splits by...
+Definition
+Utils.C:270
+src
+jevois
+DNN
+Utils.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/DNN_2Utils_8H_source.html
+TITRE: JeVois: include/jevois/DNN/Utils.H Source File
+================================================================================
+
+JeVois: include/jevois/DNN/Utils.H Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+Utils.H
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2020 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#pragma once
+19
+20
+#include <map>
+21
+#include <string>
+22
+#include <opencv2/core/core.hpp>
+23
+#include <tensorflow/lite/c/common.h>
+// for TfLiteType
+24
+#include <ovxlib/vsi_nn_pub.h>
+// for data types and quantization types
+25
+26
+#ifdef JEVOIS_PRO
+27
+#include <hailo/hailort.h>
+28
+#include <onnxruntime_cxx_api.h>
+29
+#endif
+30
+31
+namespace
+jevois
+32
+33
+//! Deep neural networks
+34
+namespace
+dnn
+35
+36
+/*! \defgroup dnn Tensor/Neural Processing networks
+37
+38
+Classes and utilities to provide abstraction to deep neural networks. Provides interfacing to OpenCV backends
+39
+(CPU, OpenCL), tensor processing units (TPU) such as Coral Edge TPU and neural processing units (NPU) such as
+40
+Amlogic A311D NPU. */
+41
+42
+/*! @{ */
+// **********************************************************************
+43
+44
+//! Get class labels from either a list or a file
+45
+/*! If arg corresponds to a file that exists (either absolute path or relative to JEVOIS_SHARE_PATH), then load the
+46
+classes from that file. Otherwise, set them from arg, which should then be a comma-separated list of values. */
+47
+std::map<int, std::string>
+getClassLabels
+(std::string
+const
+& arg);
+48
+49
+//! Read a label file
+50
+/*! Two formats are allowed: one class name per line, or one class number followed by one class name per file.*/
+51
+std::map<int, std::string>
+readLabelsFile
+(std::string
+const
+& fname);
+52
+53
+//! Get a label from an id
+54
+/*! If no entry is found in the map, return the id as a string (if namedonly is false) or an empty string (if
+55
+namedonly is true). */
+56
+std::string
+getLabel
+(std::map<int, std::string>
+const
+& labels,
+int
+id
+bool
+namedonly =
+false
+);
+57
+58
+//! Compute a color from a label name
+59
+int
+stringToRGBA
+(std::string
+const
+& label,
+unsigned
+char
+alpha = 128);
+60
+61
+//! Get top-k entries and their indices
+62
+void
+topK
+float
+const
+* pfProb,
+float
+* pfMaxProb, uint32_t * pMaxClass, uint32_t outputCount, uint32_t topNum);
+63
+64
+//! Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional cv::Mat with data type TYPE
+65
+std::string
+shapestr
+(cv::Mat
+const
+& m);
+66
+67
+//! Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional size vector and OpenCV data type TYPE
+68
+std::string
+shapestr
+(std::vector<size_t> dims,
+int
+typ);
+69
+70
+//! Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional size vector and OpenCV data type TYPE
+71
+std::string
+shapestr
+(std::vector<int> dims,
+int
+typ);
+72
+73
+//! Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional TfLiteTensor with data type TYPE
+74
+std::string
+shapestr
+(TfLiteTensor
+const
+* t);
+75
+76
+//! Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional NPU tensor with data type TYPE
+77
+std::string
+shapestr
+(vsi_nn_tensor_attr_t
+const
+& attr);
+78
+79
+//! Get a vector of size_t from a string containing AxBxC...
+80
+std::vector<size_t>
+strshape
+(std::string
+const
+& str);
+81
+82
+//! Convert from TensorFlow data type to OpenCV
+83
+int
+tf2cv
+(TfLiteType t);
+84
+85
+//! Convert from TensorFlow data type to vsi_nn
+86
+vsi_nn_type_e
+tf2vsi
+(TfLiteType t);
+87
+88
+//! Convert from NPU data type to OpenCV
+89
+int
+vsi2cv
+(vsi_nn_type_e t);
+90
+91
+//! Clamp a rectangle to within given image width and height
+92
+void
+clamp
+(cv::Rect & r,
+int
+width,
+int
+height);
+93
+94
+//! Clamp a rectangle to within given image width and height
+95
+void
+clamp
+(cv::Rect2f & r,
+float
+width,
+float
+height);
+96
+97
+//! Parse tensor specification
+98
+/*! If the specification is empty, an empty vector is returned. Throws std::range_error on any parsing error. */
+99
+std::vector<vsi_nn_tensor_attr_t>
+parseTensorSpecs
+(std::string
+const
+& specs);
+100
+101
+//! Construct a cv::Mat from attr and possibly data pointer
+102
+/*! If dataptr is nullptr, new memory will be allocated for the cv::Mat. Caller must ensure data outlives the
+103
+cv::Mat, and is responsible for eventually de-allocating the data. Usually, with non-null dataptr, this is only
+104
+to be used as a temporary re-casting, e.g., to recast a received tensor into a Mat before dequantizing it, then
+105
+forgetting about that Mat. */
+106
+cv::Mat
+attrmat
+(vsi_nn_tensor_attr_t
+const
+& attr,
+void
+* dataptr =
+nullptr
+);
+107
+108
+//! Get a tensor dims as a vector of int, useful to construct a matching cv::Mat
+109
+std::vector<int>
+attrdims
+(vsi_nn_tensor_attr_t
+const
+& attr);
+110
+111
+//! Get a tensor's (width, height) size in cv::Size format, skipping over other dimensions
+112
+cv::Size
+attrsize
+(vsi_nn_tensor_attr_t
+const
+& attr);
+113
+114
+//! Get a string describing the specs of a tensor, including quantification specs (not provided by shapestr())
+115
+std::string
+attrstr
+(vsi_nn_tensor_attr_t
+const
+& attr);
+116
+117
+//! Check that a cv::Mat blob matches exactly the spec of an attr
+118
+bool
+attrmatch
+(vsi_nn_tensor_attr_t
+const
+& attr, cv::Mat
+const
+& blob);
+119
+120
+//! Get tensor shape and type attributes for a TensorFlow Lite tensor
+121
+vsi_nn_tensor_attr_t
+tensorattr
+(TfLiteTensor
+const
+* t);
+122
+123
+//! Compute fast exponential using approximation formula
+124
+/*! From https://github.com/Qengineering/YoloV8-ncnn-Raspberry-Pi-4/blob/main/yoloV8.cpp */
+125
+float
+fastexp
+float
+x);
+126
+127
+//! Compute sigmoid using fastexp
+128
+float
+sigmoid
+float
+x);
+129
+130
+//! Compute sigmoid using fastexp on every pixel of a Mat of type CV_32F, in-place
+131
+void
+sigmoid
+(cv::Mat & m);
+132
+133
+//! Apply softmax to a float vector
+134
+/*! n is the number of elements to process, stride is the increment in the arrays from one element to the next. So
+135
+the arrays should have size n * stride. Returns the index in [0..n*stride[ of the highest scoring element. If
+136
+maxonly is true, only output[returned index] is valid. */
+137
+size_t
+softmax
+float
+const
+* input,
+size_t
+const
+n,
+size_t
+const
+stride,
+float
+const
+fac,
+float
+* output,
+138
+bool
+maxonly);
+139
+140
+//! Compute softmax and return DFL distance
+141
+/*! src should have size n * stride. Note: even if stride > 1, dst should always have size n */
+142
+float
+softmax_dfl
+float
+const
+* src,
+float
+* dst,
+size_t
+const
+n,
+size_t
+const
+stride = 1);
+143
+144
+//! Quantize from float32 to fixed-point according to the quantization spec in attr
+145
+/*! m should be float32, typically normalized to [0..1[ or [-1..1[ already. attr is the desired quantized type and
+146
+method (DFP, AA, etc) */
+147
+cv::Mat
+quantize
+(cv::Mat
+const
+& m, vsi_nn_tensor_attr_t
+const
+& attr);
+148
+149
+//! Dequantize an output to float32 according to the quantization spec in attr
+150
+/*! attr should have the type and quantization details of m, returned tensor is float32 */
+151
+cv::Mat
+dequantize
+(cv::Mat
+const
+& m, vsi_nn_tensor_attr_t
+const
+& attr);
+152
+153
+//! Returns the number of non-unit dims in a cv::Mat
+154
+/*! For example, returns 2 for a 4D Mat with size 1x1x224x224, since it effectively is a 224x224 2D array */
+155
+size_t
+effectiveDims
+(cv::Mat
+const
+& m);
+156
+157
+//! Concatenate several tensors into one
+158
+/*! Axis may be positive starting at 0 for the first dimension (when reading dims from left to right), or negative
+159
+starting at -1 for the last dimension. For example, for a 10x20x30 tensor, axis 0 has size 10 and is also axis
+160
+-3, axis 1 has size 20 and is also axis -2, and axis 2 has size 30 and is also axis -1. The input tensors must
+161
+all have the same number of dimensions, same pixel type, and sizes must match for all dimensions except the one
+162
+that is being concatenated. */
+163
+cv::Mat
+concatenate
+(std::vector<cv::Mat>
+const
+& tensors,
+int
+axis);
+164
+165
+//! Split a tensor into several, along a given axis
+166
+/*! The sum of all given sizes must equal the original size along the selected axis. */
+167
+std::vector<cv::Mat>
+split
+(cv::Mat
+const
+& tensor,
+int
+axis, std::vector<int>
+const
+& sizes);
+168
+169
+#ifdef JEVOIS_PRO
+170
+//! Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional Hailo tensor with data type TYPE
+171
+std::string
+shapestr
+(hailo_vstream_info_t
+const
+& vi);
+172
+173
+//! Get tensor shape and type attributes for a Hailo tensor
+174
+vsi_nn_tensor_attr_t
+tensorattr
+(hailo_vstream_info_t
+const
+& vi);
+175
+176
+//! Convert from Hailo data type to vsi_nn
+177
+vsi_nn_type_e
+hailo2vsi
+(hailo_format_type_t t);
+178
+179
+//! Convert from ONNX-Runtime data type to vsi_nn
+180
+vsi_nn_type_e
+onnx2vsi
+(ONNXTensorElementDataType t);
+181
+182
+//! Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional ONNX tensor with data type TYPE
+183
+std::string
+shapestr
+(Ort::ConstTensorTypeAndShapeInfo
+const
+& ti);
+184
+185
+//! Get tensor shape and type attributes for an ONNX-runtime tensor
+186
+vsi_nn_tensor_attr_t
+tensorattr
+(Ort::ConstTensorTypeAndShapeInfo
+const
+& ti);
+187
+#endif
+188
+189
+/*! @} */
+// **********************************************************************
+190
+191
+192
+/*! \defgroup pydnn DNN-related processors written in python
+193
+194
+In addition to writing DNN pre/net/post processors in C++, JeVois supports writing them in Python.
+195
+196
+\ingroup dnn */
+197
+198
+199
+// namespace dnn
+200
+// namespace jevois
+201
+202
+// Inlcude inlined functions implementation
+203
+#include <jevois/DNN/details/UtilsImpl.H>
+jevois::dnn::fastexp
+float fastexp(float x)
+Compute fast exponential using approximation formula.
+jevois::dnn::tf2cv
+int tf2cv(TfLiteType t)
+Convert from TensorFlow data type to OpenCV.
+Definition
+Utils.C:327
+jevois::dnn::getClassLabels
+std::map< int, std::string > getClassLabels(std::string const &arg)
+Get class labels from either a list or a file.
+Definition
+Utils.C:25
+jevois::dnn::vsi2cv
+int vsi2cv(vsi_nn_type_e t)
+Convert from NPU data type to OpenCV.
+Definition
+Utils.C:349
+jevois::dnn::softmax
+size_t softmax(float const *input, size_t const n, size_t const stride, float const fac, float *output, bool maxonly)
+Apply softmax to a float vector.
+Definition
+Utils.C:733
+jevois::dnn::tensorattr
+vsi_nn_tensor_attr_t tensorattr(TfLiteTensor const *t)
+Get tensor shape and type attributes for a TensorFlow Lite tensor.
+Definition
+Utils.C:605
+jevois::dnn::getLabel
+std::string getLabel(std::map< int, std::string > const &labels, int id, bool namedonly=false)
+Get a label from an id.
+Definition
+Utils.C:85
+jevois::dnn::quantize
+cv::Mat quantize(cv::Mat const &m, vsi_nn_tensor_attr_t const &attr)
+Quantize from float32 to fixed-point according to the quantization spec in attr.
+Definition
+Utils.C:816
+jevois::dnn::readLabelsFile
+std::map< int, std::string > readLabelsFile(std::string const &fname)
+Read a label file.
+Definition
+Utils.C:42
+jevois::dnn::sigmoid
+float sigmoid(float x)
+Compute sigmoid using fastexp.
+jevois::dnn::onnx2vsi
+vsi_nn_type_e onnx2vsi(ONNXTensorElementDataType t)
+Convert from ONNX-Runtime data type to vsi_nn.
+Definition
+Utils.C:249
+jevois::dnn::split
+std::vector< cv::Mat > split(cv::Mat const &tensor, int axis, std::vector< int > const &sizes)
+Split a tensor into several, along a given axis.
+Definition
+Utils.C:997
+jevois::dnn::parseTensorSpecs
+std::vector< vsi_nn_tensor_attr_t > parseTensorSpecs(std::string const &specs)
+Parse tensor specification.
+Definition
+Utils.C:428
+jevois::dnn::clamp
+void clamp(cv::Rect &r, int width, int height)
+Clamp a rectangle to within given image width and height.
+Definition
+Utils.C:408
+jevois::dnn::attrstr
+std::string attrstr(vsi_nn_tensor_attr_t const &attr)
+Get a string describing the specs of a tensor, including quantification specs (not provided by shapes...
+Definition
+Utils.C:553
+jevois::dnn::softmax_dfl
+float softmax_dfl(float const *src, float *dst, size_t const n, size_t const stride=1)
+Compute softmax and return DFL distance.
+Definition
+Utils.C:769
+jevois::dnn::attrmat
+cv::Mat attrmat(vsi_nn_tensor_attr_t const &attr, void *dataptr=nullptr)
+Construct a cv::Mat from attr and possibly data pointer.
+Definition
+Utils.C:512
+jevois::dnn::effectiveDims
+size_t effectiveDims(cv::Mat const &m)
+Returns the number of non-unit dims in a cv::Mat.
+Definition
+Utils.C:927
+jevois::dnn::hailo2vsi
+vsi_nn_type_e hailo2vsi(hailo_format_type_t t)
+Convert from Hailo data type to vsi_nn.
+Definition
+Utils.C:394
+jevois::dnn::concatenate
+cv::Mat concatenate(std::vector< cv::Mat > const &tensors, int axis)
+Concatenate several tensors into one.
+Definition
+Utils.C:937
+jevois::dnn::stringToRGBA
+int stringToRGBA(std::string const &label, unsigned char alpha=128)
+Compute a color from a label name.
+Definition
+Utils.C:97
+jevois::dnn::attrsize
+cv::Size attrsize(vsi_nn_tensor_attr_t const &attr)
+Get a tensor's (width, height) size in cv::Size format, skipping over other dimensions.
+Definition
+Utils.C:528
+jevois::dnn::dequantize
+cv::Mat dequantize(cv::Mat const &m, vsi_nn_tensor_attr_t const &attr)
+Dequantize an output to float32 according to the quantization spec in attr.
+Definition
+Utils.C:888
+jevois::dnn::tf2vsi
+vsi_nn_type_e tf2vsi(TfLiteType t)
+Convert from TensorFlow data type to vsi_nn.
+Definition
+Utils.C:371
+jevois::dnn::topK
+void topK(float const *pfProb, float *pfMaxProb, uint32_t *pMaxClass, uint32_t outputCount, uint32_t topNum)
+Get top-k entries and their indices.
+Definition
+Utils.C:106
+jevois::dnn::shapestr
+std::string shapestr(cv::Mat const &m)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional cv::Mat with data type TYPE.
+Definition
+Utils.C:126
+jevois::dnn::attrdims
+std::vector< int > attrdims(vsi_nn_tensor_attr_t const &attr)
+Get a tensor dims as a vector of int, useful to construct a matching cv::Mat.
+Definition
+Utils.C:519
+jevois::dnn::strshape
+std::vector< size_t > strshape(std::string const &str)
+Get a vector of size_t from a string containing AxBxC...
+Definition
+Utils.C:318
+jevois::dnn::attrmatch
+bool attrmatch(vsi_nn_tensor_attr_t const &attr, cv::Mat const &blob)
+Check that a cv::Mat blob matches exactly the spec of an attr.
+Definition
+Utils.C:802
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+include
+jevois
+DNN
+Utils.H
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+

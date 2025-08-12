@@ -1,0 +1,2398 @@
+DOCUMENTATION JEVOIS - PARTIE 15
+Catégorie principale: OTHER
+Nombre de documents: 2
+================================================================================
+
+
+================================================================================
+URL: http://jevois.org/doc/Module_8H_source.html
+TITRE: JeVois: include/jevois/Core/Module.H Source File
+================================================================================
+
+JeVois: include/jevois/Core/Module.H Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+Module.H
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2016 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#pragma once
+19
+20
+#include <
+jevois/Image/RawImage.H
+21
+#include <
+jevois/Core/InputFrame.H
+22
+#include <
+jevois/Core/OutputFrame.H
+23
+#include <
+jevois/Core/VideoBuf.H
+24
+#include <
+jevois/Core/UserInterface.H
+// not strictly needed but derived classes will want to use it
+25
+#include <
+jevois/Component/Component.H
+26
+#include <
+jevois/Types/ObjReco.H
+27
+#include <
+jevois/Types/ObjDetect.H
+28
+#include <
+jevois/Types/Enum.H
+29
+#include <opencv2/core/core.hpp>
+30
+#include <memory>
+31
+#include <ostream>
+32
+33
+#ifdef JEVOIS_PRO
+34
+#include <
+jevois/GPU/GUIhelper.H
+// not strictly required but derived classes may want to use it
+35
+#include <glm/gtc/matrix_transform.hpp>
+// glm::translate, glm::rotate, glm::scale, glm::perspective
+36
+#endif
+37
+38
+namespace
+jevois
+39
+40
+class
+VideoOutput;
+41
+class
+Engine;
+42
+43
+//! Virtual base class for a vision processing module
+44
+/*! Module is the base class to implement camera-to-USB frame-by-frame video processing. The Engine instantiates one
+45
+class derived from Module, according to the current VideoMapping selected by the end user (e.g., current image
+46
+resolution, format, and frame rate setected by a webcam viewing program on a host computer). The Module is loaded
+47
+as shared object (.so) file according to the VideoMapping definitions in videomappings.cfg and the current
+48
+VideoMapping selected by the user.
+49
+50
+Module derives from Component and as such can contain:
+51
+52
+- any number of Parameter settings
+53
+54
+- any arbitrarily complex sub-hierarchy of Component objects to implement various functionality. Parameter
+55
+settings from all the sub-components are available to the Module and to users connected over Serial ports of the
+56
+Engine.
+57
+58
+This allows one to implement complex vision processing pipelines efficiently and with substantial code re-use. For
+59
+example, one may first want to implement an EdgeDetector or Saliency component, with Parameter settings for
+60
+various thresholds, features, etc. One can then create any number of top-level objects that derive from Module and
+61
+that may contain one or more EdgeDetector, Saliency, etc components in their hierarchy of sub-components, with the
+62
+implementation in the module simply routing images from one Component to another to create a processing pipeline.
+63
+64
+Classes that derive from Module should implement up to four functions:
+65
+66
+- process(InputFrame && inframe, OutputFrame && outframe) is called once per iteration of the Engine main loop
+67
+when the current VideoMapping specifies both a particular Camera resolution and format, and a USB resolution and
+68
+format. This function should process the received input frame and fill the pixel buffer of the output frame with
+69
+results. Memory has already been allocated for both the input and output images before process() is
+70
+called. Because the output image is actually allocated by the USB Gadget driver (and, ultimately, by the Linux
+71
+kernel), its pixel memory location cannot be moved (hence, do not attempt to copy the output image or replace it
+72
+by another image, etc; just write pixel data into the output image's pixel array). There is no restriction on
+73
+video modes or frame rates, except as suported by the Camera hardware, and as limited by USB bandwidth. For most
+74
+implementations, matching the input and output frame rate is easiest, and means that each invocation of
+75
+process() would access and use both of the provided InputFrame and OutputFrame (one-input-to-one-output
+76
+processing pipeline). But this is not mandatory. For example, a motion flow computation Module for use in a
+77
+flying drone may have 320x240 YUYV 53.0fps inputs and 100x142 GREY 10.6fps output (since output frame rate is 5x
+78
+lower than input in this example, the process() function would here get, fill, and send the OutputFrame only
+79
+once every 5 times it is called; implementation of the process() function should keep track of that, e.g.,
+80
+through a member variable that gets incremented each time process() is called). In addition to filling the pixel
+81
+data of the OutputFrame, process() may also send results over the serial ports (e.g., for use by an Arduino
+82
+connected to the JeVois platform hardware) using sendSerial().
+83
+84
+- process(InputFrame && inframe) is called once per Camera frame when the current VideoMapping specifies a
+85
+particular Camera resolution and format, and NONE as USB output format. This function should process the
+86
+received input frame and would typicaly then send results to serial ports (e.g., for use by an Arduino connected
+87
+to the JeVois platform hardware) using sendSerial(). There is no restriction on video modes or frame rates,
+88
+except as suported by the Camera hardware.
+89
+90
+- parseSerial(std::string const & str, std::shared_ptr<UserInterface> s) allows the Module to support custom user
+91
+commands. Engine will forward to this function any command received over Serial or other UserInterface that it
+92
+does not understand. You should use this for things that go beyond Parameter settings (which is already natively
+93
+supported by Engine) or built-in commands of Engine (see \ref UserCli). For example, one could implement here a
+94
+command called "start" to allow users to start some specific thing.
+95
+96
+- supportedCommands(std::ostream & os) should stream out a human-readable description of any custom commands
+97
+supported by parseSerial(). These will be shown to users when they type "help" over a Serial port.
+98
+99
+\note Every module implementation file should contain a call to #JEVOIS_REGISTER_MODULE(MODULENAME) for the
+100
+module's class. This creates some plain-C entry points that will be used when the module is loaded from a dynamic
+101
+library (.so) file to instantiate the module. See \ref ModuleTutorial for examples.
+102
+103
+\ingroup core */
+104
+class
+Module
+public
+Component
+105
+106
+public
+107
+//! Constructor
+108
+/*! the instance is a user-defined string that may be used to differentiate between several instances of the
+109
+same module. */
+110
+Module
+(std::string
+const
+& instance);
+111
+112
+//! Virtual destructor for safe inheritance
+113
+virtual
+~Module
+();
+114
+115
+//! Processing function, version that receives a frame from camera and sends a frame out over USB
+116
+/*! This function is called once for each grabbed video frame from the camera, and it should complete within the
+117
+camera's frame period in order to avoid dropping frames. The InputFrame and OutputFrame objects are simple
+118
+wrappers to ensure that the low-level video buffers will always be returned to the low-level camera and USB
+119
+drivers even if the process function throws at any point during the processing. If any error occurs, it is
+120
+hence ok to throw from within process() at any time, just make sure your locally allocated resources will be
+121
+freed, which is usually best achieved by using shared_ptr and similar wrappers around them. The Engine (which
+122
+calls process() on your module for every frame) will catch any exception an proceed to the next frame.
+123
+124
+Default implementation in the base class just throws. Derived classes should override it. */
+125
+virtual
+void
+process
+InputFrame
+&& inframe,
+OutputFrame
+&& outframe);
+126
+127
+//! Processing function, version that receives a frame from camera and does not use USB
+128
+/*! This function is called once for each grabbed video frame from the camera, and it should complete within the
+129
+camera's frame period in order to avoid dropping frames. The InputFrame object is a simple wrapper to ensure
+130
+that the low-level video buffers will always be returned to the low-level camera driver even if the process
+131
+function throws at any point during the processing. If any error occurs, it is hence ok to throw from within
+132
+process() at any time, just make sure your locally allocated resources will be freed, which is usually best
+133
+achieved by using shared_ptr and similar wrappers around them. The Engine (which calls process() on your
+134
+module for every frame) will catch any exception an proceed to the next frame.
+135
+136
+Default implementation in the base class just throws. Derived classes should override it. */
+137
+virtual
+void
+process
+InputFrame
+&& inframe);
+138
+139
+#ifdef JEVOIS_PRO
+140
+//! Processing function, version that receives a frame from camera, no USB, but GUI output on JeVois-Pro
+141
+/*! This function is called once for each grabbed video frame from the camera, and it should complete within the
+142
+camera's frame period in order to avoid dropping frames. The InputFrame object is a simple wrapper to ensure
+143
+that the low-level video buffers will always be returned to the low-level camera driver even if the process
+144
+function throws at any point during the processing. If any error occurs, it is hence ok to throw from within
+145
+process() at any time, just make sure your locally allocated resources will be freed, which is usually best
+146
+achieved by using shared_ptr and similar wrappers around them. The Engine (which calls process() on your
+147
+module for every frame) will catch any exception an proceed to the next frame.
+148
+149
+Default implementation in the base class just throws. Derived classes should override it. */
+150
+virtual
+void
+process
+InputFrame
+&& inframe,
+GUIhelper
+& helper);
+151
+#endif
+152
+153
+//! Send a string over the 'serout' serial port
+154
+/*! The default implementation just sends the string to the serial port specified by the 'serout' Parameter in
+155
+Engine (which could be the hardware serial port, the serial-over-USB port, both, or none; see \ref UserCli for
+156
+information about \c serout). No need to override in most cases. Typically, you would use this function from
+157
+within process() to send out some results of your processing.
+158
+159
+Note that the default 'serout' Parameter setting in Engine is None. This is to allow users to configure
+160
+parameters, get parameter values, possibly read the help message, etc before the flow of serial outputs from
+161
+vision processing starts. Once ready to receive serial outputs, one would typically issue a command 'setpar
+162
+serout Hard' over the JeVois command line to enable serial outputs to the hardware serial port. An Arduino
+163
+would issue that setpar commands when it is ready to work. See ArduinoTutorial for an example. */
+164
+virtual
+void
+sendSerial
+(std::string
+const
+& str);
+165
+166
+//! Receive a string from a serial port which contains a user command
+167
+/*! This function may be called in between calls to process() with any received string from any of the serial
+168
+ports. Some commands are parsed upstream already (like "help", set param value, set camera control, etc; see
+169
+the Engine class) and will not be received here. Only the ones not recognized by the Engine will be received
+170
+(i.e., custom commands specific to your module).
+171
+172
+The default implementation just throws std::runtime_error("Unsupported command"), but some modules may want to
+173
+override this function to handle custom commands. If you successfully process the command, just return;
+174
+otherwise, throw, and if your exception derives from std::exception, the Engine will append its what() to the
+175
+error message issued to the user. When you support commands here, you should update the implementation of
+176
+supportedCommands() to provide some description of those commands to the users.
+177
+178
+The \c s parameter is the serial port that received the command. You can send any results back to that port
+179
+using writeString() on it. Note that the Engine will automatically add the 'OK' message upon success, so you
+180
+do not have to send that here. */
+181
+virtual
+void
+parseSerial
+(std::string
+const
+& str, std::shared_ptr<UserInterface> s);
+182
+183
+//! Human-readable description of this Module's supported custom commands
+184
+/*! The format here is free. Just use std::endl to demarcate lines, these will be converted to the appropriate
+185
+line endings by the serial ports. Default implementation writes "None" to os. */
+186
+virtual
+void
+supportedCommands
+(std::ostream & os);
+187
+};
+188
+189
+namespace
+modul
+190
+191
+static
+ParameterCategory
+const
+ParamCateg(
+"Module Serial Message Options"
+);
+192
+193
+//! Enum for Parameter \relates jevois::StdModule
+194
+JEVOIS_DEFINE_ENUM_CLASS
+(SerStyle, (Terse) (Normal) (Detail) (Fine) );
+195
+196
+//! Parameter \relates jevois::StdModule
+197
+JEVOIS_DECLARE_PARAMETER
+(serstyle, SerStyle,
+"Style for standardized serial messages as defined in "
+198
+"http://jevois.org/doc/UserSerialStyle.html"
+199
+SerStyle::Terse, SerStyle_Values, ParamCateg);
+200
+201
+//! Parameter \relates jevois::StdModule
+202
+JEVOIS_DECLARE_PARAMETER
+(serprec,
+unsigned
+int
+"Number of decimal points in standardized serial messages as "
+203
+"defined in http://jevois.org/doc/UserSerialStyle.html"
+204
+0U,
+jevois::Range<unsigned int>
+(0U, 10U), ParamCateg);
+205
+206
+//! Enum for Parameter \relates jevois::StdModule
+207
+JEVOIS_DEFINE_ENUM_CLASS
+(SerStamp, (None) (Frame) (Time) (FrameTime) (FrameDateTime) );
+208
+209
+//! Parameter \relates jevois::StdModule
+210
+JEVOIS_DECLARE_PARAMETER
+(serstamp, SerStamp,
+"Prepend standardized serial messages with a frame number, "
+211
+"time, frame+time, or frame+date+time. See details in "
+212
+"http://jevois.org/doc/UserSerialStyle.html"
+213
+SerStamp::None, SerStamp_Values, ParamCateg);
+214
+215
+//! Enum for Parameter \relates jevois::StdModule
+216
+JEVOIS_DEFINE_ENUM_CLASS
+(SerMark, (None) (Start) (Stop) (Both) );
+217
+218
+//! Parameter \relates jevois::StdModule
+219
+JEVOIS_DECLARE_PARAMETER
+(sermark, SerMark,
+"Send serial message to mark the beginning (MARK START) of the "
+220
+"processing of a video frame from the camera sensor, the end (MARK STOP), or both. "
+221
+"Useful, among others, if one needs to know when no results were sent over serial "
+222
+"on a given frame. Combine with parameter serstamp if you need to know the frame number."
+223
+SerMark::None, SerMark_Values, ParamCateg);
+224
+225
+226
+//! Base class for a module that supports standardized serial messages
+227
+/*! Modules that can output standardized serial messages should derive from StdModule instead of Module. StdModule
+228
+brings in extra parameters to set serial message style and precision, and extra member functions to assemble,
+229
+format, and send standardized serial messages. The process(), sendSerial(), parseSerial(), supportedCommands(),
+230
+etc of StdModule functions are directly inherited from Module. See \ref UserSerialStyle for standardized serial
+231
+messages. \ingroup core */
+232
+class
+StdModule
+public
+Module
+233
+public
+Parameter<modul::serprec, modul::serstyle, modul::serstamp, modul::sermark>
+234
+235
+public
+236
+//! Constructor
+237
+/*! the instance is a user-defined string that may be used to differentiate between several instances of the
+238
+same module. */
+239
+StdModule
+(std::string
+const
+& instance);
+240
+241
+//! Virtual destructor for safe inheritance
+242
+virtual
+~StdModule
+();
+243
+244
+//! Send standardized 1D message for an X image coordinate
+245
+/*! See \ref UserSerialStyle for more info. Coordinates should be in camera image pixels, this function will
+246
+convert them to standardized coordinates as per \ref coordhelpers. */
+247
+void
+sendSerialImg1Dx
+unsigned
+int
+camw,
+float
+x,
+float
+size = 0.0F, std::string
+const
+id
+""
+248
+std::string
+const
+& extra =
+""
+);
+249
+250
+//! Send standardized 1D message for a standardized X coordinate
+251
+/*! See \ref UserSerialStyle for more info. Coordinates should be in camera image pixels, this function will
+252
+convert them to standardized coordinates as per \ref coordhelpers. */
+253
+void
+sendSerialStd1Dx
+float
+x,
+float
+size = 0.0F, std::string
+const
+id
+""
+, std::string
+const
+& extra =
+""
+);
+254
+255
+//! Send standardized 1D message for an Y image coordinate
+256
+/*! See \ref UserSerialStyle for more info. Coordinates should be in camera image pixels, this function will
+257
+convert them to standardized coordinates as per \ref coordhelpers. */
+258
+void
+sendSerialImg1Dy
+unsigned
+int
+camh,
+float
+y,
+float
+size = 0.0F, std::string
+const
+id
+""
+259
+std::string
+const
+& extra =
+""
+);
+260
+261
+//! Send standardized 1D message for a standardized Y coordinate
+262
+/*! See \ref UserSerialStyle for more info. Coordinates should be in camera image pixels, this function will
+263
+convert them to standardized coordinates as per \ref coordhelpers. */
+264
+void
+sendSerialStd1Dy
+float
+y,
+float
+size = 0.0F, std::string
+const
+id
+""
+, std::string
+const
+& extra =
+""
+);
+265
+266
+//! Send standardized 2D message for image coordinates
+267
+/*! Use this function if you only know location and optionally size. Use the other variants if you have the
+268
+corners. An upright rectangular shape will be assumed here. See \ref UserSerialStyle for more
+269
+info. Coordinates should be in camera image pixels, this function will convert them to standardized
+270
+coordinates as per \ref coordhelpers. */
+271
+void
+sendSerialImg2D
+unsigned
+int
+camw,
+unsigned
+int
+camh,
+float
+x,
+float
+y,
+float
+w = 0.0F,
+float
+= 0.0F,
+272
+std::string
+const
+id
+""
+, std::string
+const
+& extra =
+""
+);
+273
+274
+//! Send standardized 2D message for standardized coordinates
+275
+/*! Use this function if you only know location and optionally size. Use the other variants if you have the
+276
+corners. An upright rectangular shape will be assumed here. See \ref UserSerialStyle for more
+277
+info. Coordinates should be in camera image pixels, this function will convert them to standardized
+278
+coordinates as per \ref coordhelpers. */
+279
+void
+sendSerialStd2D
+float
+x,
+float
+y,
+float
+w = 0.0F,
+float
+= 0.0F,
+280
+std::string
+const
+id
+""
+, std::string
+const
+& extra =
+""
+);
+281
+282
+//! Send standardized 2D message for polygons in image coordinates
+283
+/*! Use this function if you have a polygon around your object, for example, one of the contours found with
+284
+cv::findContours(), or if you have the 4 corners of a rectangular object. See \ref UserSerialStyle for more
+285
+info. Coordinates should be in camera image pixels, this function will convert them to standardized
+286
+coordinates as per \ref coordhelpers. For \b Terse serial style, the center of gravity of the points will be
+287
+computed and output; for \b Normal, an upright bounding rectangle will be computed and output; for \b
+288
+Detailed, a rotated bounding rectangle will be computed and output; for \b Fine, all the given points will
+289
+be output. Make sure you try to reduce the number of points so the message is not too long; for example see
+290
+OpenCV approxPolyDP() or similar. */
+291
+template
+typename
+T =
+int
+292
+void
+sendSerialContour2D
+unsigned
+int
+camw,
+unsigned
+int
+camh, std::vector<cv::Point_<T> > points,
+293
+std::string
+const
+id
+""
+, std::string
+const
+& extra =
+""
+);
+294
+295
+//! Send standardized 3D message
+296
+/*! Use this function if you only know location and optionally size and an orientation quaternion. Use the other
+297
+variants if you have a bunch of vertices. See \ref UserSerialStyle for more info. Coordinates should be in
+298
+millimeters. */
+299
+void
+sendSerialStd3D
+float
+x,
+float
+y,
+float
+z,
+float
+w = 0.0F,
+float
+= 0.0F,
+float
+d = 0.0F,
+300
+float
+q1 = 0.0F,
+float
+q2 = 0.0F,
+float
+q3 = 0.0f,
+float
+q4 = 0.0F,
+301
+std::string
+const
+id
+""
+, std::string
+const
+& extra =
+""
+);
+302
+303
+//! Send standardized 3D message
+304
+/*! Use this function if you only know location and optionally size and an orientation quaternion. Use the other
+305
+variants if you have a bunch of vertices. See \ref UserSerialStyle for more info. Coordinates should be in
+306
+millimeters. */
+307
+void
+sendSerialStd3D
+(std::vector<cv::Point3f> points, std::string
+const
+id
+""
+308
+std::string
+const
+& extra =
+""
+);
+309
+310
+//! Send a standardized object recognition message
+311
+/*! res should be a list of scores and category names, in descending order of scores. Note that no message
+312
+is sent if the vector is empty. */
+313
+void
+sendSerialObjReco
+(std::vector<ObjReco>
+const
+& res);
+314
+315
+//! Send a standardized object detection + recognition message
+316
+/*! res should be a list of scores and category names, in descending order of scores. Note that no message
+317
+is sent if the vector is empty. See sendSerialImg2D() for info about the object box. */
+318
+void
+sendSerialObjDetImg2D
+unsigned
+int
+camw,
+unsigned
+int
+camh,
+float
+x,
+float
+y,
+float
+w,
+float
+319
+std::vector<ObjReco>
+const
+& res);
+320
+321
+//! Send a standardized object detection + recognition message
+322
+/*! res should be a list of scores and category names, in descending order of scores. Note that no message
+323
+is sent if the vector is empty. See sendSerialImg2D() for info about the object box. */
+324
+void
+sendSerialObjDetImg2D
+unsigned
+int
+camw,
+unsigned
+int
+camh,
+ObjDetect
+const
+& det);
+325
+326
+//! Send a standardized oriented bounding box (OBB) object detection + recognition message
+327
+/*! res should be a list of scores and category names, in descending order of scores. Note that no message
+328
+is sent if the vector is empty. */
+329
+void
+sendSerialObjDetImg2D
+unsigned
+int
+camw,
+unsigned
+int
+camh,
+ObjDetectOBB
+const
+& det);
+330
+331
+protected
+332
+friend
+class
+jevois::Engine
+333
+334
+//! Send a message <b>MARK START</b> to indicate the beginning of processing
+335
+/*! A stamp may be prepended depending on param \p serstamp. Engine calls this automatically so users would
+336
+normally not use this function. Note that this function may not send anything depending on the current
+337
+value of parameter \p sermark. */
+338
+void
+sendSerialMarkStart
+();
+339
+340
+//! Send a message <b>MARK STOP</b> to indicate the end of processing
+341
+/*! A stamp may be prepended depending on param \p serstamp. Engine calls this automatically so users would
+342
+normally not use this function. Note that this function may not send anything depending on the current
+343
+value of parameter \p sermark. */
+344
+void
+sendSerialMarkStop
+();
+345
+346
+//! Get a string with the frame/date/time stamp in it, depending on serstamp parameter
+347
+std::string
+getStamp
+()
+const
+348
+};
+349
+350
+351
+//! Register a module, allowing it to be dynamically loaded from a .so file
+352
+/* \def JEVOIS_REGISTER_MODULE(MODULENAME)
+353
+\hideinitializer
+354
+355
+Every module implementation file should contain a call to JEVOIS_REGISTER_MODULE for the module's class. This creates
+356
+some plain-C entry points that will be used when the module is loaded from a dynamic library (.so) file to
+357
+instantiate the module.  \relates Module */
+358
+#define JEVOIS_REGISTER_MODULE(MODULENAME)                              \
+359
+extern "C" std::shared_ptr<jevois::Module> MODULENAME##_create(std::string const & instanceid) \
+360
+{ return std::shared_ptr<jevois::Module>(new MODULENAME(instanceid)); } \
+361
+extern "C" int MODULENAME##_version_major() { return JEVOIS_VERSION_MAJOR; } \
+362
+extern "C" int MODULENAME##_version_minor() { return JEVOIS_VERSION_MINOR; } \
+363
+364
+//! Create and register a disabled module, allowing it to be dynamically loaded from a .so file
+365
+/* \def JEVOIS_DISABLED_MODULE(MODULENAME)
+366
+\hideinitializer
+367
+368
+Use this macro when creating modules that only work on a given host/platform A33/Pro configuration. For example,
+369
+modules using the A311D NPU can only be compiled on jevois-pro platform. Typically, you would then do:
+370
+\code
+371
+#include <jevois/Core/Module.H>
+372
+373
+#ifdef JEVOIS_PLATFORM_PRO
+374
+class MyModule { ... };
+375
+376
+JEVOIS_REGISTER_MODULE(MyModule);
+377
+#else
+378
+JEVOIS_DISABLED_MODULE(MyModule);
+379
+#endif
+380
+\endcode
+381
+\relates Module */
+382
+#define JEVOIS_DISABLED_MODULE(MODULENAME)                              \
+383
+class MODULENAME : public jevois::Module {                            \
+384
+public:                                                             \
+385
+MODULENAME(std::string const & instancename) : jevois::Module(instancename) \
+386
+{ throw std::runtime_error("This module is disabled on your hardware configuration"); } \
+387
+};                                                                    \
+388
+extern "C" std::shared_ptr<jevois::Module> MODULENAME##_create(std::string const & instanceid) \
+389
+{ return std::shared_ptr<jevois::Module>(new MODULENAME(instanceid)); } \
+390
+extern "C" int MODULENAME##_version_major() { return JEVOIS_VERSION_MAJOR; } \
+391
+extern "C" int MODULENAME##_version_minor() { return JEVOIS_VERSION_MINOR; } \
+392
+Component.H
+Enum.H
+int h
+Definition
+GUIhelper.C:2580
+GUIhelper.H
+InputFrame.H
+ObjDetect.H
+ObjReco.H
+OutputFrame.H
+RawImage.H
+UserInterface.H
+VideoBuf.H
+jevois::Component
+A component of a model hierarchy.
+Definition
+Component.H:182
+jevois::Component::Module
+friend class Module
+Definition
+Component.H:521
+jevois::Engine
+JeVois processing engine - gets images from camera sensor, processes them, and sends results over USB...
+Definition
+Engine.H:416
+jevois::GUIhelper
+Helper class to assist modules in creating graphical and GUI elements.
+Definition
+GUIhelper.H:133
+jevois::InputFrame
+Exception-safe wrapper around a raw camera input frame.
+Definition
+InputFrame.H:51
+jevois::Module
+Virtual base class for a vision processing module.
+Definition
+Module.H:105
+jevois::Module::sendSerial
+virtual void sendSerial(std::string const &str)
+Send a string over the 'serout' serial port.
+Definition
+Module.C:54
+jevois::Module::supportedCommands
+virtual void supportedCommands(std::ostream &os)
+Human-readable description of this Module's supported custom commands.
+Definition
+Module.C:67
+jevois::Module::parseSerial
+virtual void parseSerial(std::string const &str, std::shared_ptr< UserInterface > s)
+Receive a string from a serial port which contains a user command.
+Definition
+Module.C:63
+jevois::Module::~Module
+virtual ~Module()
+Virtual destructor for safe inheritance.
+Definition
+Module.C:36
+jevois::Module::process
+virtual void process(InputFrame &&inframe, OutputFrame &&outframe)
+Processing function, version that receives a frame from camera and sends a frame out over USB.
+Definition
+Module.C:40
+jevois::OutputFrame
+Exception-safe wrapper around a raw image to be sent over USB.
+Definition
+OutputFrame.H:53
+jevois::Range
+A generic range class.
+Definition
+Range.H:81
+jevois::StdModule
+Base class for a module that supports standardized serial messages.
+Definition
+Module.H:234
+jevois::StdModule::sendSerialStd1Dx
+void sendSerialStd1Dx(float x, float size=0.0F, std::string const &id="", std::string const &extra="")
+Send standardized 1D message for a standardized X coordinate.
+Definition
+Module.C:138
+jevois::StdModule::sendSerialObjDetImg2D
+void sendSerialObjDetImg2D(unsigned int camw, unsigned int camh, float x, float y, float w, float h, std::vector< ObjReco > const &res)
+Send a standardized object detection + recognition message.
+Definition
+Module.C:572
+jevois::StdModule::~StdModule
+virtual ~StdModule()
+Virtual destructor for safe inheritance.
+Definition
+Module.C:77
+jevois::StdModule::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(sermark, SerMark, "Send serial message to mark the beginning (MARK START) of the " "processing of a video frame from the camera sensor, the end (MARK STOP), or both. " "Useful, among others, if one needs to know when no results were sent over serial " "on a given frame. Combine with parameter serstamp if you need to know the frame number.", SerMark::None, SerMark_Values, ParamCateg)
+Parameter.
+jevois::StdModule::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(SerStyle,(Terse)(Normal)(Detail)(Fine))
+Enum for Parameter.
+jevois::StdModule::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(SerMark,(None)(Start)(Stop)(Both))
+Enum for Parameter.
+jevois::StdModule::getStamp
+std::string getStamp() const
+Get a string with the frame/date/time stamp in it, depending on serstamp parameter.
+Definition
+Module.C:81
+jevois::StdModule::sendSerialStd3D
+void sendSerialStd3D(float x, float y, float z, float w=0.0F, float h=0.0F, float d=0.0F, float q1=0.0F, float q2=0.0F, float q3=0.0f, float q4=0.0F, std::string const &id="", std::string const &extra="")
+Send standardized 3D message.
+Definition
+Module.C:385
+jevois::StdModule::sendSerialObjReco
+void sendSerialObjReco(std::vector< ObjReco > const &res)
+Send a standardized object recognition message.
+Definition
+Module.C:535
+jevois::StdModule::sendSerialImg2D
+void sendSerialImg2D(unsigned int camw, unsigned int camh, float x, float y, float w=0.0F, float h=0.0F, std::string const &id="", std::string const &extra="")
+Send standardized 2D message for image coordinates.
+Definition
+Module.C:221
+jevois::StdModule::sendSerialStd1Dy
+void sendSerialStd1Dy(float y, float size=0.0F, std::string const &id="", std::string const &extra="")
+Send standardized 1D message for a standardized Y coordinate.
+Definition
+Module.C:186
+jevois::StdModule::sendSerialMarkStop
+void sendSerialMarkStop()
+Send a message MARK STOP to indicate the end of processing.
+Definition
+Module.C:527
+jevois::StdModule::JEVOIS_DEFINE_ENUM_CLASS
+JEVOIS_DEFINE_ENUM_CLASS(SerStamp,(None)(Frame)(Time)(FrameTime)(FrameDateTime))
+Enum for Parameter.
+jevois::StdModule::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(serstamp, SerStamp, "Prepend standardized serial messages with a frame number, " "time, frame+time, or frame+date+time. See details in " "http://jevois.org/doc/UserSerialStyle.html", SerStamp::None, SerStamp_Values, ParamCateg)
+Parameter.
+jevois::StdModule::sendSerialStd2D
+void sendSerialStd2D(float x, float y, float w=0.0F, float h=0.0F, std::string const &id="", std::string const &extra="")
+Send standardized 2D message for standardized coordinates.
+Definition
+Module.C:234
+jevois::StdModule::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(serstyle, SerStyle, "Style for standardized serial messages as defined in " "http://jevois.org/doc/UserSerialStyle.html", SerStyle::Terse, SerStyle_Values, ParamCateg)
+Parameter.
+jevois::StdModule::JEVOIS_DECLARE_PARAMETER
+JEVOIS_DECLARE_PARAMETER(serprec, unsigned int, "Number of decimal points in standardized serial messages as " "defined in http://jevois.org/doc/UserSerialStyle.html", 0U, jevois::Range< unsigned int >(0U, 10U), ParamCateg)
+Parameter.
+jevois::StdModule::sendSerialImg1Dx
+void sendSerialImg1Dx(unsigned int camw, float x, float size=0.0F, std::string const &id="", std::string const &extra="")
+Send standardized 1D message for an X image coordinate.
+Definition
+Module.C:124
+jevois::StdModule::sendSerialImg1Dy
+void sendSerialImg1Dy(unsigned int camh, float y, float size=0.0F, std::string const &id="", std::string const &extra="")
+Send standardized 1D message for an Y image coordinate.
+Definition
+Module.C:173
+jevois::StdModule::sendSerialMarkStart
+void sendSerialMarkStart()
+Send a message MARK START to indicate the beginning of processing.
+Definition
+Module.C:519
+jevois::StdModule::sendSerialContour2D
+void sendSerialContour2D(unsigned int camw, unsigned int camh, std::vector< cv::Point_< T > > points, std::string const &id="", std::string const &extra="")
+Send standardized 2D message for polygons in image coordinates.
+Definition
+Module.C:284
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+jevois::ObjDetectOBB
+A trivial struct to store object detection results, for oriented bounding boxes (OBB)
+Definition
+ObjDetect.H:38
+jevois::ObjDetect
+A trivial struct to store object detection results, for standard (straight up) bounding boxes.
+Definition
+ObjDetect.H:29
+jevois::ParameterCategory
+A category to which multiple ParameterDef definitions can belong.
+Definition
+ParameterDef.H:34
+include
+jevois
+Core
+Module.H
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/Parameter_8H_source.html
+TITRE: JeVois: include/jevois/Component/Parameter.H Source File
+================================================================================
+
+JeVois: include/jevois/Component/Parameter.H Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+Parameter.H
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2016 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+// This code is inspired by the Neuromorphic Robotics Toolkit (http://nrtkit.org)
+19
+20
+#pragma once
+21
+22
+#include <boost/thread.hpp>
+23
+24
+// Get our helpers
+25
+#include <jevois/Component/details/ParameterHelpers.H>
+26
+27
+/*! \defgroup parameter Parameter-related classes and functions
+28
+\ingroup component
+29
+30
+The concept of parameter in the JeVois framework embodies wrappers around a single value of any type, with
+31
+associated documentation (description), default values, possible specification of valid values, accessor functions
+32
+to obtain or change the value, and optional callback functions that are triggered when the value is
+33
+changed. Parameters are intended to be used in objects that inherit from Component. The goal of parameters is to
+34
+expose parameters of a given vision algorithm in such a way that any piece of code that is using that algorithm will
+35
+automatically inherit and expose these parameters.
+36
+37
+How to explore this documentation module:
+38
+39
+- Start with a bit of general philosophy about components and parameters: \ref Component
+40
+- Then understand how one may specify valid values for parameters: \ref validvalues
+41
+- Then have a look at how one may define the name, type, description, default value, category, and optionally
+42
+valid values for a parameter: \ref ParameterDef<T>
+43
+- Then you are ready for [Parameter](classjevois_1_1Parameter_3_01Param_00_01Tail_01_8_8_8_01_4.html)
+44
+45
+The other classes in this documentation module are mainly for support of the above ones.
+46
+47
+Convenience macro to define a Parameter type
+48
+--------------------------------------------
+49
+50
+\code
+51
+JEVOIS_DECLARE_PARAMETER(ParamName, ParamType, ...)
+52
+\endcode
+53
+54
+ParamName is the name chosen for the parameter. A new class type will be created with that name, so it must be
+55
+syntactically correct as a class name. ParamType is the type of the parameter value. The remaining arguments are
+56
+passed to the constructor of jevois::ParameterDef<T> with T=ParamType.
+57
+58
+Convenience macro to define a Parameter type, with callback
+59
+-----------------------------------------------------------
+60
+61
+\code
+62
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(ParamName, ParamType, ...)
+63
+\endcode
+64
+65
+ParamName is the name chosen for the parameter. A new class type will be created with that name, so it must be
+66
+syntactically correct as a class name. ParamType is the type of the parameter value. The remaining arguments are
+67
+passed to the constructor of jevois::ParameterDef<T> with T=ParamType.
+68
+69
+In this version with callback, a pure virtual method is included in the new class that is defined, with the
+70
+following signature:
+71
+72
+\code
+73
+virtual void onParamChange(ParamName const & param, ParamType const & newval) = 0;
+74
+\endcode
+75
+76
+The host class (typically, a Component) that inherits from Parameter<ParamName> must implement an override of this
+77
+function. A compile-time error will be issued if that override has not been implemented. */
+78
+79
+namespace
+jevois
+80
+81
+// ######################################################################
+82
+//! ParameterSummary provides a summary about a parameter
+83
+/*! This is used mainly for graphical interfaces. \ingroup parameter */
+84
+class
+ParameterSummary
+85
+86
+public
+87
+//! Descriptor. This is the name of the parameter, qualified by a chain of component names
+88
+std::string
+descriptor
+89
+90
+//! Plain name of the parameter
+91
+std::string
+name
+92
+93
+//! Description of the parameter
+94
+std::string
+description
+95
+96
+//! Parameter value type, as a string
+97
+std::string
+valuetype
+98
+99
+//! Default value of the parameter, as a string
+100
+std::string
+defaultvalue
+101
+102
+//! Current value of the parameter, as a string
+103
+std::string
+value
+104
+105
+//! Description of the parameter's valid values specification, as a string
+106
+std::string
+validvalues
+107
+108
+//! Category of the parameter, as a string
+109
+std::string
+category
+110
+111
+//! Category description
+112
+std::string
+categorydescription
+113
+114
+//! Flag that indicates whether parameter is frozen
+115
+bool
+frozen
+116
+117
+//! Flag that indicates whether parameter is hidden
+118
+bool
+hidden
+119
+};
+120
+121
+// ######################################################################
+122
+//! Base class for Parameter
+123
+/*! This exposes the string interface to the Parameter while derived template classes will expose the
+124
+value-based interface. \ingroup parameter */
+125
+class
+ParameterBase
+126
+127
+public
+128
+//! Constructor
+129
+ParameterBase
+();
+130
+131
+//! Destructor, will remove the parameter from its owner component
+132
+virtual
+~ParameterBase
+();
+133
+134
+//! Get the parameter name
+135
+virtual
+std::string
+const
+name
+()
+const
+= 0;
+136
+137
+//! Get the parameter fully-qualified name, aka descriptor, including names of owning Component and all parents
+138
+virtual
+std::string
+descriptor
+()
+const
+= 0;
+139
+140
+//! Set the value from a string representation of it
+141
+/*! @throws std::range_error if the given string cannot be converted to a Parameter value, or the value is invalid
+142
+according to our valid values spec or rejected by the Parameter's callback (if any). */
+143
+virtual
+void
+strset
+(std::string
+const
+& valstring) = 0;
+144
+145
+//! Get the value as a string
+146
+virtual
+std::string
+const
+strget
+()
+const
+= 0;
+147
+148
+//! Get summary info about this parameter
+149
+virtual
+ParameterSummary
+const
+summary
+()
+const
+= 0;
+150
+151
+//! Freeze or un-freeze a parameter; frozen parameters cannot be set(), but get() is still allowed
+152
+void
+freeze
+bool
+doit);
+153
+154
+//! Returns whether parameter is frozen
+155
+bool
+frozen
+()
+const
+156
+157
+//! Hide or un-hide a parameter; hidden params will not show up in GUI or help message, but still work normally
+158
+void
+hide
+bool
+doit);
+159
+160
+//! Returns whether parameter is hidden
+161
+bool
+hidden
+()
+const
+162
+163
+//! Reset this parameter to its default value
+164
+virtual
+void
+reset
+() = 0;
+165
+166
+protected
+167
+mutable
+boost::shared_mutex
+itsMutex
+//!< Mutex to protect the parameter value
+168
+volatile
+bool
+itsFrozen
+//!< When true, parameter is frozen (read-only)
+169
+volatile
+bool
+itsHidden
+//!< When true, parameter is hidden (not visible in GUI or help message)
+170
+bool
+itsVirgin
+//!< Param has not yet been explicitly set, need to call the callback (if any) at init time
+171
+172
+private
+173
+friend
+class
+ParameterRegistry
+// allow the registry to call our callbacks with defaut val
+174
+175
+// Call our callback with our current value, used at init() time
+176
+/* We cannot call the callback during parameter construction because the host Component object is not fully
+177
+constructed yet (since it derives from its parameters). Thus, for all parameters that have a callback, we will
+178
+call that callback once during init(), unless it is already called during command-line parsing. */
+179
+virtual
+void
+callbackInitCall() = 0;
+180
+};
+181
+182
+// Closing and then re-opening the namespace somehow makes doxygen ignore all classes defined below...
+183
+#ifndef JEVOIS_DOXYGEN
+184
+185
+// namespace jevois
+186
+187
+// Include ParameterDef now (it needs to know about ParameterBase):
+188
+#include <
+jevois/Component/ParameterDef.H
+189
+190
+namespace
+jevois
+191
+192
+class
+Component;
+193
+194
+#endif
+// JEVOIS_DOXYGEN
+195
+196
+// ######################################################################
+197
+//! A changeable parameter for a Component, core class
+198
+/*! Parameters are used to expose user-configurable settings for a Component.  They can be specified from the command
+199
+line and will be set by the time Component::postInit() is called on the Component which owns the
+200
+Parameter. A Parameter may have a callback function which is invoked each time an attempt is made to change the
+201
+Parameter value. \ingroup parameter */
+202
+template
+typename
+T>
+203
+class
+ParameterCore
+public
+ParameterBase
+204
+205
+public
+206
+//! Constructor
+207
+/*! \param def A pointer to the definition for this parameter (given by a ParameterDef). */
+208
+ParameterCore
+ParameterDef<T>
+const
+def
+);
+209
+210
+//! Destructor
+211
+virtual
+~ParameterCore
+();
+212
+213
+//! Get the parameter name
+214
+virtual
+std::string
+const
+name
+()
+const override
+215
+216
+//! Get the parameter fully-qualified name, aka descriptor
+217
+virtual
+std::string
+descriptor
+()
+const override
+218
+219
+//! Get the value of this Parameter
+220
+get
+()
+const
+221
+222
+//! Set the value of this Parameter
+223
+/*! Will throw jevois::exception::ParameterException if the new value is not accepted, in which case the old value
+224
+will remain in the Parameter. */
+225
+void
+set
+(T
+const
+& newVal);
+226
+227
+//! Set the value from a string representation of it
+228
+/*! @throws std::range_error if the given string cannot be converted to a valid Parameter value. */
+229
+virtual
+void
+strset
+(std::string
+const
+& valstring)
+override
+230
+231
+//! Get the value as a string representation of it
+232
+virtual
+std::string
+const
+strget
+()
+const override
+233
+234
+//! Get summary info about this parameter
+235
+virtual
+ParameterSummary
+const
+summary
+()
+const override
+236
+237
+//! Reset this parameter to its default value
+238
+virtual
+void
+reset
+()
+override
+239
+240
+//! Access to our parameter def
+241
+ParameterDef<T>
+const
+def
+()
+const
+242
+243
+//! Change the ParameterDef of this parameter
+244
+/*! Use with caution, only people who know what they are doing should use this function. Its thread safety and
+245
+possible side effects are dubious. */
+246
+void
+changeParameterDef
+ParameterDef<T>
+const
+def
+);
+247
+248
+//! Set the parameter's callback
+249
+/*! The callback function is called each time one tries to change the value of the parameter. Try to avoid using
+250
+setCallback() so you won't confuse users of your class. In most cases, just use the convenience
+251
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK() macro.
+252
+253
+The callback should examine the candidate value newval and (1) if it does not like it, throw an
+254
+std::range_error with a descriptive message of why the value is rejected, (2) otherwise, it is assumed that
+255
+the value is accepted and the callback can then allocate resources or do other work with that value (the
+256
+actual modification of the Parameter object is handled upstream and the callback does not need to worry about
+257
+it: if it returns without throwing, the proposed value will become the new value of the Parameter). The
+258
+Parameter is locked-up for writing as long as the callback is running, to avoid destruction of the parameter
+259
+and/or concurrent parameter value changes by several different threads. Thus, callbacks should try to execute
+260
+quickly, and should not call set(), etc on the parameter as this will always deadlock (get() is allowed if
+261
+your callback needs to know the current value of the parameter). */
+262
+void
+setCallback
+(std::function<
+void
+(T
+const
+&)> cb);
+263
+264
+protected
+265
+//! Get the Component to which this Parameter is attached, or nullptr (individual parameters must override)
+266
+virtual
+Component
+const
+owner
+()
+const
+= 0;
+267
+268
+private
+269
+void
+callbackInitCall()
+override
+// Call our callback with the default value in our def
+270
+271
+std::function<void(T
+const
+&)> itsCallback;
+// optional callback function
+272
+T itsVal;
+// The actual value of the parameter
+273
+ParameterDef<T>
+const
+itsDef;
+// The parameter's definition
+274
+};
+275
+276
+// ######################################################################
+277
+//! A set of Parameters attached to a component
+278
+/*! This variadic template class is just for the convenience of adding several parameters to a Component in one
+279
+statement.
+280
+281
+The way in which we have implemented Parameter in the JeVois framework may seem unorthodox at first, but is the
+282
+best way we have found so far in terms of minimizing burden when writing new components with lots of
+283
+parameters. In our earlier framework, the iLab Neuromorphic Vision Toolkit (iNVT) started in 1995, parameters were
+284
+included in components as member variables. The burden to programmers was so high that often they just did not
+285
+include parameters and hardwired values instead, just to avoid that burden. The burden comes from the
+286
+requirements:
+287
+288
+- we want to be able to support parameters of any type
+289
+- we want each parameter to have a name, description, default value, specification of valid values
+290
+- we want parameters to appear in related groups in the help message
+291
+- we want to support callbacks, i.e., functions that are called when one tries to change the parameter value
+292
+- we typically want the callback to be a member function of the Component that owns a given parameter,
+293
+since changing that parameter value will typically trigger some re-organization in that Component (otherwise
+294
+the callback might not be needed).
+295
+296
+Possible implementation using class data members for parameters (similar to what we used in iNVT), here shown for
+297
+a sample int parameter to specify the size of a queue held in a class MyComp that derives from Component:
+298
+299
+\code
+300
+ParamDef<int> sizeparamdef("size", "Queue size", 5, Range<int>(1, 100), categ);
+301
+class MyComp : public jevois::Component
+302
+303
+public:
+304
+Param<int> sizeparam; // ouch
+305
+306
+void sizeParamCallback(int newval) { myqueue.resize(newval); }
+307
+308
+MyComp(std::string const & instance) :
+309
+jevois::Component(instance),
+310
+sizeparam(sizeparamdef)  // ouch
+311
+312
+sizeparam.setCallback(&MyComp::sizeParamCallback); // ouch
+313
+314
+};
+315
+\endcode
+316
+317
+So we basically end up with 3 names that people have no idea what to do with and will just use confusing names for
+318
+(sizeparamdef, sizeparam, sizeParamCallback), and we have to 1) specify the definition of name, description, etc
+319
+somewhere using some arbitrary name (here sizeparamdef), then add the member variable for the param to the
+320
+component using some other name (here sizeparam), then construct the param which would typically require linking
+321
+it to its definition so we can get the default value and such, and finally hook the callback up (note how MyComp
+322
+is not fully constructed yet when we construct sizeparam hence referencing sizeParamCallback() at that time is
+323
+dubious at best). In reality, things are even worse since typically the paramdef, component class declaration, and
+324
+component implementation, should be in 3 different files.
+325
+326
+\note <em>``There are only two hard things in Computer Science: cache invalidation and naming things.'' <b>-- Phil
+327
+Karlton</b></em>
+328
+329
+The approach we developed for the Neuromorphic Robotics Toolkit (NRT) and refined for JeVois works as follows:
+330
+331
+- each parameter is a unique new class type. We create that type once with one name, and it holds the parameter
+332
+value and the definition data. This is further facilitated by the
+333
+JEVOIS_DECLARE_PARAMETER(ParamName, ParamType, ...) variadic macro.
+334
+335
+- for parameters with callbacks, their class type includes a pure virtual onParamChange(param, value) function
+336
+that will need to be implemented by the host component. This is facilitated by the
+337
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(ParamName, ParamType, ...) variadic macro. The first argument of
+338
+onParamChange() is the parameter class type, so that a host component with many parameters will have many
+339
+different onParamChange() functions, one per parameter that has a callback.
+340
+341
+- components inherit from their parameters using variadic templates to make inheriting from multiple parameters
+342
+short and easy.
+343
+344
+- each parameter exposes simple functions get(), set(), etc (see ParameterCore and ParameterBase). In a component
+345
+that has many parameters, accessing parameters is achieved by disambiguating on which base class (i.e., which
+346
+parameter) one wants to access the get(), set(), etc function, which is achieved by calling paramx::get() vs
+347
+paramy::get(), etc
+348
+349
+- No need to declare parameter member variables (we inherit from them instead).
+350
+- No need to do anything at construction of the component.
+351
+- No need to manually hook the callback function in the component host class to the parameter.
+352
+- When implementing the callback, all members of the host class are available (since the host class inherits
+353
+from the Parameter). This is critical since usually callbacks are implemented so that the host component
+354
+will take some action when a parameter value is changed, e.g., reconfigure itself in some way.
+355
+- Strong compile-time checking that the programmer did not forget to write the callback function for each
+356
+parameter that was declared as having a callback.
+357
+- Only one name used throughout for that parameter and all its associated machinery (definition, callback).
+358
+- It is easy to write scripts that search the source tree for information about all the parameters of a component,
+359
+since those are always all specified in the Parameter< ... > inheritance statement.
+360
+361
+Remaining caveat: it is often desirable to use short names for parameters, such as "size", "length", "dims",
+362
+"threshold", etc and those names may clash between several components as the .H files for these components are
+363
+included when building a more complex component or system that uses those. This is not an issue for Module, which
+364
+is a terminal entity and is typically written as a single .C file with no .H file. For components intended for
+365
+broad use, we currently recommend putting all the parameters in a namespace that is the lowercase version of the
+366
+component class name.
+367
+368
+Below is the resulting implementation in Manager.H. We start with declaring the parameters, and we inherit from
+369
+them when declaring the Manager class. We declare the parameters in a new namespace \a manager to avoid name
+370
+clashes with other parameters of other components:
+371
+372
+\include snip/manager1.C
+373
+374
+For the parameters that we declared as having a callback, we further include in our definition of the Manager
+375
+class overrides for the pure virtual onParamChange() functions that they added to our manager class. Note the
+376
+signatures of these functions: The first argument is a const reference to the parameter for which this callback
+377
+is, and its main role is to disambiguate between the different onParamChange() functions a component may have. The
+378
+second argument is the proposed new parameter value. The onParamChange() function should examine the candidate new
+379
+value and (1) if it does not like it, throw and std::range_error with a descriptive message of why the value is
+380
+rejected, (2) otherwise, it is assumed that the value is accepted and the callback can then allocate resources or
+381
+do other work with that value (the actual modification of the Parameter object is handled upstream and the
+382
+callback does not need to worry about it: if it returns without throwing, the proposed value will become the new
+383
+value of the Parameter). The Parameter is locked-up for writing as long as the callback is running, to avoid
+384
+destruction of the parameter and/or concurrent parameter value changes by several different threads. Thus,
+385
+callbacks should try to execute quickly, and should not call set(), etc on the parameter as this will always
+386
+deadlock (get() is allowed if your callback needs to know the current value of the parameter).
+387
+388
+\include snip/manager2.C
+389
+390
+There is nothing to do in the constructor, destructor, etc of Manager. The only thing that remains to be done is
+391
+to implement the onParamChange() functions in Manager.C. Note how we do not give a name to the first argument
+392
+(which is a ref to the parameter itself; that first argument is necessary to disambiguate among the various
+393
+onParamChange() functions for different parameters, but usually we only care about the new value and do not need
+394
+the handle to the parameter). This is to avoid compiler warnings about our callback not using that first argument:
+395
+396
+\include snip/manager3.C
+397
+398
+The host component can use a parameter's member functions by calling them with the parameter name as a prefix
+399
+(this prefix is basically selecting on which base class we want to run the given function). For example, in
+400
+Manager, we take some action if the \p help parameter has been set at the command line, and then we freeze it. All
+401
+member functions defined in ParameterBase and in ParameterCore<T> are available on every Parameter (get(), set(),
+402
+strget(), strset(), name(), descriptor(), summary(), freeze(), etc):
+403
+404
+\include snip/manager4.C
+405
+406
+For completeness, if you wonder what JEVOIS_DECLARE_PARAMETER(ParamName, ParamType, ...) and
+407
+JEVOIS_DECLARE_PARAMETER_WITH_CALLBACK(ParamName, ParamType, ...)  exactly do, here they are in
+408
+ParameterHelpers.H and reproduced here:
+409
+410
+\include snip/parametermacros.C
+411
+412
+Also see Engine.H or the many components in the jevoisbase library. \ingroup parameter */
+413
+template
+class
+Param,
+class
+... Tail>
+414
+class
+Parameter<Param, Tail ...> :
+public
+Param,
+public
+Parameter<Tail ...>
+415
+416
+static_assert
+(std::is_base_of<jevois::ParameterBase, Param>::value,
+417
+"jevois::Parameter<...> template arguments must all be parameters "
+418
+"(derive from jevois::ParameterBase"
+);
+419
+};
+420
+421
+// ######################################################################
+422
+//! Dynamic parameter added to a component at runtime
+423
+/*! Dynamic parameters can only be accessed by descriptor at the Component level (using getParamVal(), setParamVal(),
+424
+etc), since there is no unique class type for them and the owning Component does not inherit from them. Typically
+425
+for use via Component::addDynamicParameter(). Use with caution. Mainly developed to enable endowing python modules
+426
+with JeVois parameters. \ingroup parameter */
+427
+template
+typename
+T>
+428
+class
+DynamicParameter
+public
+jevois::ParameterCore
+<T>
+429
+430
+public
+431
+432
+//! Our type
+433
+typedef
+DynamicParameter<T>
+type
+434
+435
+//! Constructor
+436
+DynamicParameter
+Component
+* comp,
+ParameterDef<T>
+const
+& pdef);
+437
+438
+//! Destructor
+439
+virtual
+~DynamicParameter
+();
+440
+441
+//! Handle to owning component
+442
+virtual
+Component
+const
+owner
+()
+const override
+443
+444
+private
+445
+Component
+* itsComp;
+446
+};
+447
+448
+// namespace jevois
+449
+ParameterDef.H
+jevois::Component
+A component of a model hierarchy.
+Definition
+Component.H:182
+jevois::DynamicParameter
+Dynamic parameter added to a component at runtime.
+Definition
+Parameter.H:429
+jevois::DynamicParameter::DynamicParameter
+DynamicParameter(Component *comp, ParameterDef< T > const &pdef)
+Constructor.
+jevois::DynamicParameter::type
+DynamicParameter< T > type
+Our type.
+Definition
+Parameter.H:433
+jevois::DynamicParameter::owner
+virtual Component const * owner() const override
+Handle to owning component.
+jevois::DynamicParameter::~DynamicParameter
+virtual ~DynamicParameter()
+Destructor.
+jevois::ParameterBase
+Base class for Parameter.
+Definition
+Parameter.H:126
+jevois::ParameterBase::name
+virtual std::string const & name() const =0
+Get the parameter name.
+jevois::ParameterBase::itsFrozen
+volatile bool itsFrozen
+When true, parameter is frozen (read-only)
+Definition
+Parameter.H:168
+jevois::ParameterBase::reset
+virtual void reset()=0
+Reset this parameter to its default value.
+jevois::ParameterBase::descriptor
+virtual std::string descriptor() const =0
+Get the parameter fully-qualified name, aka descriptor, including names of owning Component and all p...
+jevois::ParameterBase::strset
+virtual void strset(std::string const &valstring)=0
+Set the value from a string representation of it.
+jevois::ParameterBase::itsHidden
+volatile bool itsHidden
+When true, parameter is hidden (not visible in GUI or help message)
+Definition
+Parameter.H:169
+jevois::ParameterBase::itsVirgin
+bool itsVirgin
+Param has not yet been explicitly set, need to call the callback (if any) at init time.
+Definition
+Parameter.H:170
+jevois::ParameterBase::itsMutex
+boost::shared_mutex itsMutex
+Mutex to protect the parameter value.
+Definition
+Parameter.H:167
+jevois::ParameterBase::hide
+void hide(bool doit)
+Hide or un-hide a parameter; hidden params will not show up in GUI or help message,...
+jevois::ParameterBase::~ParameterBase
+virtual ~ParameterBase()
+Destructor, will remove the parameter from its owner component.
+jevois::ParameterBase::hidden
+bool hidden() const
+Returns whether parameter is hidden.
+jevois::ParameterBase::summary
+virtual ParameterSummary const summary() const =0
+Get summary info about this parameter.
+jevois::ParameterBase::strget
+virtual std::string const strget() const =0
+Get the value as a string.
+jevois::ParameterBase::frozen
+bool frozen() const
+Returns whether parameter is frozen.
+jevois::ParameterBase::freeze
+void freeze(bool doit)
+Freeze or un-freeze a parameter; frozen parameters cannot be set(), but get() is still allowed.
+jevois::ParameterBase::ParameterBase
+ParameterBase()
+Constructor.
+jevois::ParameterCore
+A changeable parameter for a Component, core class.
+Definition
+Parameter.H:204
+jevois::ParameterCore::strget
+virtual std::string const strget() const override
+Get the value as a string representation of it.
+jevois::ParameterCore::strset
+virtual void strset(std::string const &valstring) override
+Set the value from a string representation of it.
+jevois::ParameterCore::ParameterCore
+ParameterCore(ParameterDef< T > const &def)
+Constructor.
+jevois::ParameterCore::def
+ParameterDef< T > const & def() const
+Access to our parameter def.
+jevois::ParameterCore::set
+void set(T const &newVal)
+Set the value of this Parameter.
+jevois::ParameterCore::~ParameterCore
+virtual ~ParameterCore()
+Destructor.
+jevois::ParameterCore::changeParameterDef
+void changeParameterDef(ParameterDef< T > const &def)
+Change the ParameterDef of this parameter.
+jevois::ParameterCore::name
+virtual std::string const & name() const override
+Get the parameter name.
+jevois::ParameterCore::descriptor
+virtual std::string descriptor() const override
+Get the parameter fully-qualified name, aka descriptor.
+jevois::ParameterCore::reset
+virtual void reset() override
+Reset this parameter to its default value.
+jevois::ParameterCore::get
+T get() const
+Get the value of this Parameter.
+jevois::ParameterCore::summary
+virtual ParameterSummary const summary() const override
+Get summary info about this parameter.
+jevois::ParameterCore::owner
+virtual Component const * owner() const =0
+Get the Component to which this Parameter is attached, or nullptr (individual parameters must overrid...
+jevois::ParameterCore::setCallback
+void setCallback(std::function< void(T const &)> cb)
+Set the parameter's callback.
+jevois::ParameterDef
+A Parameter Definition.
+Definition
+ParameterDef.H:89
+jevois::ParameterRegistry
+A simple registry of all parameters associated with a Component.
+Definition
+ParameterRegistry.H:34
+jevois::ParameterSummary
+ParameterSummary provides a summary about a parameter.
+Definition
+Parameter.H:85
+jevois::ParameterSummary::name
+std::string name
+Plain name of the parameter.
+Definition
+Parameter.H:91
+jevois::ParameterSummary::category
+std::string category
+Category of the parameter, as a string.
+Definition
+Parameter.H:109
+jevois::ParameterSummary::categorydescription
+std::string categorydescription
+Category description.
+Definition
+Parameter.H:112
+jevois::ParameterSummary::descriptor
+std::string descriptor
+Descriptor. This is the name of the parameter, qualified by a chain of component names.
+Definition
+Parameter.H:88
+jevois::ParameterSummary::valuetype
+std::string valuetype
+Parameter value type, as a string.
+Definition
+Parameter.H:97
+jevois::ParameterSummary::value
+std::string value
+Current value of the parameter, as a string.
+Definition
+Parameter.H:103
+jevois::ParameterSummary::validvalues
+std::string validvalues
+Description of the parameter's valid values specification, as a string.
+Definition
+Parameter.H:106
+jevois::ParameterSummary::defaultvalue
+std::string defaultvalue
+Default value of the parameter, as a string.
+Definition
+Parameter.H:100
+jevois::ParameterSummary::frozen
+bool frozen
+Flag that indicates whether parameter is frozen.
+Definition
+Parameter.H:115
+jevois::ParameterSummary::hidden
+bool hidden
+Flag that indicates whether parameter is hidden.
+Definition
+Parameter.H:118
+jevois::ParameterSummary::description
+std::string description
+Description of the parameter.
+Definition
+Parameter.H:94
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+include
+jevois
+Component
+Parameter.H
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+

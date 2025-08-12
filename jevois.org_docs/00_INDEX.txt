@@ -1,0 +1,35 @@
+INDEX DES FICHIERS DE DOCUMENTATION JEVOIS
+================================================================================
+
+Date de génération: 2025-08-12 10:17:25
+Pages scrapées: 36/38
+Fichiers créés: 16
+Caractères totaux: 848,350
+Moyenne par fichier: 53,021
+
+FICHIERS CRÉÉS:
+----------------------------------------
+01_postprocessor_part1.txt               -  56,546 caractères (1 docs)
+02_postprocessor_part2.txt               -  57,354 caractères (2 docs)
+03_postprocessor_part3.txt               -  62,841 caractères (4 docs)
+04_postprocessor_part4.txt               -  35,667 caractères (5 docs)
+05_pipeline_part5.txt                    -  55,945 caractères (1 docs)
+06_mixed_part6.txt                       -  48,514 caractères (3 docs)
+07_mixed_part7.txt                       -  31,358 caractères (6 docs)
+08_python_part8.txt                      -  57,777 caractères (1 docs)
+09_python_part9.txt                      -  50,677 caractères (2 docs)
+10_npu_spu_part10.txt                    -  50,798 caractères (2 docs)
+11_utils_part11.txt                      -  63,699 caractères (2 docs)
+12_other_part12.txt                      -  69,988 caractères (1 docs)
+13_other_part13.txt                      -  65,089 caractères (1 docs)
+14_other_part14.txt                      -  33,713 caractères (1 docs)
+15_other_part15.txt                      -  63,915 caractères (2 docs)
+16_other_part16.txt                      -  44,469 caractères (3 docs)
+
+================================================================================
+INSTRUCTIONS D'UTILISATION:
+----------------------------------------
+1. Uploader les fichiers dans Claude Code un par un
+2. Commencer par les fichiers 'postprocessor' et 'pipeline'
+3. Ces fichiers contiennent le code source nécessaire pour résoudre
+   le problème PyPostYOLO avec MultiDNN2

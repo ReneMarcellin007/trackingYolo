@@ -1,0 +1,3291 @@
+DOCUMENTATION JEVOIS - PARTIE 3
+Catégorie principale: POSTPROCESSOR
+Nombre de documents: 4
+================================================================================
+
+
+================================================================================
+URL: http://jevois.org/doc/PostProcessorYuNet_8C_source.html
+TITRE: JeVois: src/jevois/DNN/PostProcessorYuNet.C Source File
+================================================================================
+
+JeVois: src/jevois/DNN/PostProcessorYuNet.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+PostProcessorYuNet.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#include <
+jevois/DNN/PostProcessorYuNet.H
+19
+#include <
+jevois/DNN/PreProcessor.H
+20
+#include <
+jevois/DNN/Utils.H
+21
+#include <
+jevois/Util/Utils.H
+22
+#include <
+jevois/Image/RawImageOps.H
+23
+#include <
+jevois/Core/Engine.H
+24
+#include <
+jevois/Core/Module.H
+25
+#include <
+jevois/GPU/GUIhelper.H
+26
+27
+#include <opencv2/dnn.hpp>
+28
+29
+// ####################################################################################################
+30
+// this code from https://github.com/khadas/OpenCV_NPU_Demo
+31
+namespace
+jevois
+namespace
+dnn {
+namespace
+yunet {
+32
+33
+class
+PriorBox
+34
+35
+public
+36
+PriorBox(cv::Size
+const
+& input_shape, cv::Size
+const
+& output_shape)
+37
+38
+// initialize
+39
+in_w = input_shape.width;
+40
+in_h = input_shape.height;
+41
+out_w = output_shape.width;
+42
+out_h = output_shape.height;
+43
+44
+cv::Size feature_map_2nd { int(
+int
+((in_w+1)/2)/2), int(
+int
+((in_h+1)/2)/2) };
+45
+cv::Size feature_map_3rd { int(feature_map_2nd.width/2), int(feature_map_2nd.height/2) };
+46
+cv::Size feature_map_4th { int(feature_map_3rd.width/2), int(feature_map_3rd.height/2) };
+47
+cv::Size feature_map_5th { int(feature_map_4th.width/2), int(feature_map_4th.height/2) };
+48
+cv::Size feature_map_6th { int(feature_map_5th.width/2), int(feature_map_5th.height/2) };
+49
+50
+// feature_map_sizes.push_back(feature_map_2nd);
+51
+feature_map_sizes.push_back(feature_map_3rd);
+52
+feature_map_sizes.push_back(feature_map_4th);
+53
+feature_map_sizes.push_back(feature_map_5th);
+54
+feature_map_sizes.push_back(feature_map_6th);
+55
+56
+// generate the priors:
+57
+for
+size_t
+i = 0; i < feature_map_sizes.size(); ++i)
+58
+59
+cv::Size feature_map_size = feature_map_sizes[i];
+60
+std::vector<float> min_size = min_sizes[i];
+61
+62
+for
+int
+_h = 0; _h < feature_map_size.height; ++_h)
+63
+64
+for
+int
+_w = 0; _w < feature_map_size.width; ++_w)
+65
+66
+for
+size_t
+j = 0; j < min_size.size(); ++j)
+67
+68
+float
+s_kx = min_size[j] / in_w;
+69
+float
+s_ky = min_size[j] / in_h;
+70
+71
+float
+cx = (_w + 0.5) * steps[i] / in_w;
+72
+float
+cy = (_h + 0.5) * steps[i] / in_h;
+73
+74
+Box
+anchor = { cx, cy, s_kx, s_ky };
+75
+priors.push_back(anchor);
+76
+77
+78
+79
+80
+81
+82
+~PriorBox()
+83
+{ }
+84
+85
+std::vector<Face> decode(cv::Mat
+const
+& loc, cv::Mat
+const
+& conf, cv::Mat
+const
+& iou,
+86
+float
+const
+ignore_score = 0.3)
+87
+88
+std::vector<Face> dets;
+// num * [x1, y1, x2, y2, x_re, y_re, x_le, y_le, x_ml, y_ml, x_n, y_n, x_mr, y_ml]
+89
+90
+float
+const
+* loc_v = (
+float
+const
+*)(loc.data);
+91
+float
+const
+* conf_v = (
+float
+const
+*)(conf.data);
+92
+float
+const
+* iou_v = (
+float
+const
+*)(iou.data);
+93
+for
+size_t
+i = 0; i < priors.size(); ++i)
+94
+95
+// get score
+96
+float
+cls_score = conf_v[i*2+1];
+97
+float
+iou_score = iou_v[i];
+98
+99
+// clamp
+100
+if
+(iou_score < 0.f) iou_score = 0.f;
+else
+if
+(iou_score > 1.f) iou_score = 1.f;
+101
+float
+score = std::sqrt(cls_score * iou_score);
+102
+103
+// ignore low scores
+104
+if
+(score < ignore_score) {
+continue
+; }
+105
+106
+Face face;
+107
+face.score = score;
+108
+109
+// get bounding box
+110
+float
+cx = (priors[i].x + loc_v[i*14+0] * variance[0] * priors[i].width) * out_w;
+111
+float
+cy = (priors[i].y + loc_v[i*14+1] * variance[0] * priors[i].height) * out_h;
+112
+float
+w  = priors[i].width * exp(loc_v[i*14+2] * variance[0]) * out_w;
+113
+float
+= priors[i].height * exp(loc_v[i*14+3] * variance[1]) * out_h;
+114
+float
+x1 = cx - w / 2;
+115
+float
+y1 = cy -
+/ 2;
+116
+face.bbox_tlwh = { x1, y1, w,
+};
+117
+118
+// get landmarks, loc->[right_eye, left_eye, mouth_left, nose, mouth_right]
+119
+float
+x_re = (priors[i].x + loc_v[i*14+ 4] * variance[0] * priors[i].width) *  out_w;
+120
+float
+y_re = (priors[i].y + loc_v[i*14+ 5] * variance[0] * priors[i].height) * out_h;
+121
+float
+x_le = (priors[i].x + loc_v[i*14+ 6] * variance[0] * priors[i].width) *  out_w;
+122
+float
+y_le = (priors[i].y + loc_v[i*14+ 7] * variance[0] * priors[i].height) * out_h;
+123
+float
+x_n =  (priors[i].x + loc_v[i*14+ 8] * variance[0] * priors[i].width) *  out_w;
+124
+float
+y_n =  (priors[i].y + loc_v[i*14+ 9] * variance[0] * priors[i].height) * out_h;
+125
+float
+x_mr = (priors[i].x + loc_v[i*14+10] * variance[0] * priors[i].width) *  out_w;
+126
+float
+y_mr = (priors[i].y + loc_v[i*14+11] * variance[0] * priors[i].height) * out_h;
+127
+float
+x_ml = (priors[i].x + loc_v[i*14+12] * variance[0] * priors[i].width) *  out_w;
+128
+float
+y_ml = (priors[i].y + loc_v[i*14+13] * variance[0] * priors[i].height) * out_h;
+129
+face.landmarks = {
+130
+{x_re, y_re},
+// right eye
+131
+{x_le, y_le},
+// left eye
+132
+{x_n,  y_n },
+// nose
+133
+{x_mr, y_mr},
+// mouth right
+134
+{x_ml, y_ml}
+// mouth left
+135
+};
+136
+137
+dets.push_back(face);
+138
+139
+return
+dets;
+140
+141
+142
+private
+143
+std::vector<std::vector<float>>
+const
+min_sizes
+144
+145
+{10.0f,  16.0f,  24.0f},
+146
+{32.0f,  48.0f},
+147
+{64.0f,  96.0f},
+148
+{128.0f, 192.0f, 256.0f}
+149
+};
+150
+std::vector<int>
+const
+steps { 8, 16, 32, 64 };
+151
+std::vector<float>
+const
+variance { 0.1, 0.2 };
+152
+153
+int
+in_w;
+154
+int
+in_h;
+155
+int
+out_w;
+156
+int
+out_h;
+157
+158
+std::vector<cv::Size> feature_map_sizes;
+159
+std::vector<Box> priors;
+160
+std::vector<Box> generate_priors();
+161
+};
+162
+163
+// namespace yunet
+164
+// namespace dnn
+165
+// namespace jevois
+166
+167
+168
+// ####################################################################################################
+169
+jevois::dnn::PostProcessorYuNet::~PostProcessorYuNet
+()
+170
+{ }
+171
+172
+// ####################################################################################################
+173
+void
+jevois::dnn::PostProcessorYuNet::freeze
+bool
+174
+{ }
+175
+176
+// ####################################################################################################
+177
+void
+jevois::dnn::PostProcessorYuNet::process
+(std::vector<cv::Mat>
+const
+& outs,
+jevois::dnn::PreProcessor
+* preproc)
+178
+179
+if
+(outs.size() != 3)
+LFATAL
+"Need exactly 3 outputs, received "
+<< outs.size());
+180
+if
+(outs[0].rows < 16 || outs[0].cols != 2)
+LFATAL
+"loc size "
+<< outs[0].size() <<
+" instead of 2xN_Anchors"
+);
+181
+if
+(outs[1].rows < 16 || outs[1].cols != 1)
+LFATAL
+"conf size "
+<< outs[1].size() <<
+" instead of 1xN_Anchors"
+);
+182
+if
+(outs[2].rows < 16 || outs[2].cols != 14)
+LFATAL
+"iou size "
+<< outs[2].size() <<
+" instead of 14xN_Anchors"
+);
+183
+184
+float
+const
+confThreshold = cthresh::get() * 0.01F;
+185
+float
+const
+boxThreshold = dthresh::get() * 0.01F;
+186
+float
+const
+nmsThreshold = nms::get() * 0.01F;
+187
+itsImageSize = preproc->
+imagesize
+();
+188
+189
+// To draw boxes, we will need to:
+190
+// - scale from [0..1]x[0..1] to blobw x blobh
+191
+// - scale and center from blobw x blobh to input image w x h, provided by PreProcessor::b2i()
+192
+// - when using the GUI, we further scale and translate to OpenGL display coordinates using GUIhelper::i2d()
+193
+// Here we assume that the first blob sets the input size.
+194
+cv::Size
+const
+bsiz = preproc->
+blobsize
+(0);
+195
+196
+// Initialize PriorBox on first inference:
+197
+if
+(!itsPriorBox) itsPriorBox.reset(
+new
+jevois::dnn::yunet::PriorBox(bsiz, bsiz));
+198
+199
+// Get the detections from the raw network outputs:
+200
+std::vector<jevois::dnn::yunet::Face> dets = itsPriorBox->decode(outs[2], outs[0], outs[1], boxThreshold);
+201
+202
+// NMS
+203
+itsDetections.clear();
+204
+if
+(dets.size() > 1)
+205
+206
+std::vector<cv::Rect> face_boxes;
+207
+std::vector<float> face_scores;
+208
+for
+auto
+const
+& d : dets) { face_boxes.push_back(d.bbox_tlwh); face_scores.push_back(d.score); }
+209
+210
+std::vector<int> keep_idx;
+211
+cv::dnn::NMSBoxes(face_boxes, face_scores, confThreshold, nmsThreshold, keep_idx, 1.f, top::get());
+212
+for
+size_t
+i = 0; i < keep_idx.size(); i++) itsDetections.emplace_back(dets[keep_idx[i]]);
+213
+214
+215
+// Now clamp boxes to be within blob, and adjust the boxes from blob size to input image size:
+216
+for
+(jevois::dnn::yunet::Face & f : itsDetections)
+217
+218
+jevois::dnn::yunet::Box & b = f.bbox_tlwh;
+219
+jevois::dnn::clamp
+(b, bsiz.width, bsiz.height);
+220
+221
+cv::Point2f tl = b.tl(); preproc->
+b2i
+(tl.x, tl.y);
+222
+cv::Point2f br = b.br(); preproc->
+b2i
+(br.x, br.y);
+223
+b.x = tl.x; b.y = tl.y; b.width = br.x - tl.x; b.height = br.y - tl.y;
+224
+225
+preproc->
+b2i
+(f.landmarks.right_eye.x, f.landmarks.right_eye.y);
+226
+preproc->
+b2i
+(f.landmarks.left_eye.x, f.landmarks.left_eye.y);
+227
+preproc->
+b2i
+(f.landmarks.nose_tip.x, f.landmarks.nose_tip.y);
+228
+preproc->
+b2i
+(f.landmarks.mouth_right.x, f.landmarks.mouth_right.y);
+229
+preproc->
+b2i
+(f.landmarks.mouth_left.x, f.landmarks.mouth_left.y);
+230
+231
+232
+233
+// ####################################################################################################
+234
+void
+jevois::dnn::PostProcessorYuNet::report
+jevois::StdModule
+* mod,
+jevois::RawImage
+* outimg,
+235
+jevois::OptGUIhelper
+* helper,
+bool
+overlay,
+bool
+/*idle*/
+236
+237
+for
+(jevois::dnn::yunet::Face
+const
+& f : itsDetections)
+238
+239
+jevois::dnn::yunet::Box
+const
+& b = f.bbox_tlwh;
+240
+std::string
+const
+scorestr =
+jevois::sformat
+"face: %.1f%%"
+, f.score * 100.0F);
+241
+242
+// If desired, draw boxes in output image:
+243
+if
+(outimg && overlay)
+244
+245
+unsigned
+int
+const
+col =
+jevois::yuyv::LightGreen
+246
+unsigned
+int
+const
+rad = 5;
+247
+248
+// Draw the face box:
+249
+jevois::rawimage::drawRect
+(*outimg, b.x, b.y, b.
+width
+, b.height, 2, col);
+250
+jevois::rawimage::writeText
+(*outimg, scorestr, b.x + 6, b.y + 2, col,
+jevois::rawimage::Font10x20
+);
+251
+252
+// Draw the face landmarks:
+253
+jevois::rawimage::drawCircle
+(*outimg, f.landmarks.right_eye.x, f.landmarks.right_eye.y, rad*2, 2, col);
+254
+jevois::rawimage::drawCircle
+(*outimg, f.landmarks.left_eye.x, f.landmarks.left_eye.y, rad*2, 2, col);
+255
+jevois::rawimage::drawCircle
+(*outimg, f.landmarks.nose_tip.x, f.landmarks.nose_tip.y, rad, 2, col);
+256
+jevois::rawimage::drawCircle
+(*outimg, f.landmarks.mouth_right.x, f.landmarks.mouth_right.y, rad, 2, col);
+257
+jevois::rawimage::drawCircle
+(*outimg, f.landmarks.mouth_left.x, f.landmarks.mouth_left.y, rad, 2, col);
+258
+jevois::rawimage::drawLine
+(*outimg, f.landmarks.mouth_left.x, f.landmarks.mouth_left.y,
+259
+f.landmarks.mouth_right.x, f.landmarks.mouth_right.y, 2, col);
+260
+261
+262
+#ifdef JEVOIS_PRO
+263
+// If desired, draw results on GUI:
+264
+if
+(helper)
+265
+266
+ImU32
+const
+col = 0x80ff80ff;
+267
+float
+const
+rad = 5.0f;
+268
+269
+// Draw the face box:
+270
+helper->
+drawRect
+(b.x, b.y, b.x + b.width, b.y + b.height, col,
+true
+);
+271
+helper->
+drawText
+(b.x + 3.0f, b.y + 3.0f, scorestr.c_str(), col);
+272
+273
+// Draw the face landmarks:
+274
+helper->
+drawCircle
+(f.landmarks.right_eye.x, f.landmarks.right_eye.y, rad*2, IM_COL32(255,0,0,255));
+275
+helper->
+drawCircle
+(f.landmarks.left_eye.x, f.landmarks.left_eye.y, rad*2, IM_COL32(0,0,255,255));
+276
+helper->
+drawCircle
+(f.landmarks.nose_tip.x, f.landmarks.nose_tip.y, rad, IM_COL32(0,255,0,255));
+277
+helper->
+drawCircle
+(f.landmarks.mouth_right.x, f.landmarks.mouth_right.y, rad, IM_COL32(255,0,255,255));
+278
+helper->
+drawCircle
+(f.landmarks.mouth_left.x, f.landmarks.mouth_left.y, rad, IM_COL32(0,255,255,255));
+279
+helper->
+drawLine
+(f.landmarks.mouth_left.x, f.landmarks.mouth_left.y,
+280
+f.landmarks.mouth_right.x, f.landmarks.mouth_right.y, IM_COL32(255,255,255,255));
+281
+282
+#else
+283
+(void)helper;
+// keep compiler happy
+284
+#endif
+285
+286
+// If desired, send results to serial port:
+287
+(void)mod;
+288
+//FIXME if (mod && serreport::get()) mod->sendSerialObjDetImg2D(itsImageSize.width, itsImageSize.height, o);
+289
+290
+Utils.H
+Engine.H
+int h
+Definition
+GUIhelper.C:2580
+GUIhelper.H
+Module.H
+PostProcessorYuNet.H
+Box
+cv::Rect2f Box
+A face box for YuNet.
+Definition
+PostProcessorYuNet.H:30
+PreProcessor.H
+RawImageOps.H
+Utils.H
+jevois::GUIhelper
+Helper class to assist modules in creating graphical and GUI elements.
+Definition
+GUIhelper.H:133
+jevois::GUIhelper::drawCircle
+void drawCircle(float x, float y, float r, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw circle over an image.
+Definition
+GUIhelper.C:608
+jevois::GUIhelper::drawText
+void drawText(float x, float y, char const *txt, ImU32 col=IM_COL32(128, 255, 128, 255))
+Draw text over an image.
+Definition
+GUIhelper.C:634
+jevois::GUIhelper::drawRect
+void drawRect(float x1, float y1, float x2, float y2, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw rectangular box over an image.
+Definition
+GUIhelper.C:488
+jevois::GUIhelper::drawLine
+void drawLine(float x1, float y1, float x2, float y2, ImU32 col=IM_COL32(128, 255, 128, 255))
+Draw line over an image.
+Definition
+GUIhelper.C:482
+jevois::RawImage
+A raw image as coming from a V4L2 Camera and/or being sent out to a USB Gadget.
+Definition
+RawImage.H:111
+jevois::RawImage::width
+unsigned int width
+Image width in pixels.
+Definition
+RawImage.H:145
+jevois::StdModule
+Base class for a module that supports standardized serial messages.
+Definition
+Module.H:234
+jevois::dnn::PostProcessorYuNet::~PostProcessorYuNet
+virtual ~PostProcessorYuNet()
+Destructor.
+Definition
+PostProcessorYuNet.C:169
+jevois::dnn::PostProcessorYuNet::report
+void report(jevois::StdModule *mod, jevois::RawImage *outimg=nullptr, jevois::OptGUIhelper *helper=nullptr, bool overlay=true, bool idle=false) override
+Report what happened in last process() to console/output video/GUI.
+Definition
+PostProcessorYuNet.C:234
+jevois::dnn::PostProcessorYuNet::process
+void process(std::vector< cv::Mat > const &outs, PreProcessor *preproc) override
+Process outputs and draw/send some results.
+Definition
+PostProcessorYuNet.C:177
+jevois::dnn::PostProcessorYuNet::freeze
+virtual void freeze(bool doit) override
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+PostProcessorYuNet.C:173
+jevois::dnn::PreProcessor
+Pre-Processor for neural network pipeline.
+Definition
+PreProcessor.H:110
+jevois::dnn::PreProcessor::imagesize
+cv::Size const & imagesize() const
+Access the last processed image size.
+Definition
+PreProcessor.C:39
+jevois::dnn::PreProcessor::b2i
+void b2i(float &x, float &y, size_t blobnum=0)
+Convert coordinates from blob back to original image.
+Definition
+PreProcessor.C:50
+jevois::dnn::PreProcessor::blobsize
+cv::Size blobsize(size_t num) const
+Access the width and height of a given blob, accounting for NCHW or NHWC.
+Definition
+PreProcessor.C:43
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+jevois::dnn::clamp
+void clamp(cv::Rect &r, int width, int height)
+Clamp a rectangle to within given image width and height.
+Definition
+Utils.C:408
+jevois::rawimage::writeText
+void writeText(RawImage &img, std::string const &txt, int x, int y, unsigned int col, Font font=Font6x10)
+Write some text in an image.
+Definition
+RawImageOps.C:690
+jevois::rawimage::drawLine
+void drawLine(RawImage &img, int x1, int y1, int x2, int y2, unsigned int thick, unsigned int col)
+Draw a line in a YUYV image.
+Definition
+RawImageOps.C:564
+jevois::rawimage::drawRect
+void drawRect(RawImage &img, int x, int y, unsigned int w, unsigned int h, unsigned int thick, unsigned int col)
+Draw a rectangle in a YUYV image.
+Definition
+RawImageOps.C:607
+jevois::rawimage::drawCircle
+void drawCircle(RawImage &img, int x, int y, unsigned int rad, unsigned int thick, unsigned int col)
+Draw a circle in a YUYV image.
+Definition
+RawImageOps.C:483
+jevois::rawimage::Font10x20
+@ Font10x20
+Definition
+RawImageOps.H:160
+jevois::sformat
+std::string sformat(char const *fmt,...) __attribute__((format(__printf__
+Create a string using printf style arguments.
+Definition
+Utils.C:440
+jevois::yuyv::LightGreen
+unsigned short constexpr LightGreen
+YUYV color value.
+Definition
+RawImage.H:63
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+src
+jevois
+DNN
+PostProcessorYuNet.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/PostProcessorDetectOBB_8C_source.html
+TITRE: JeVois: src/jevois/DNN/PostProcessorDetectOBB.C Source File
+================================================================================
+
+JeVois: src/jevois/DNN/PostProcessorDetectOBB.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+PostProcessorDetectOBB.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#include <
+jevois/DNN/PostProcessorDetectOBB.H
+19
+#include <
+jevois/DNN/PreProcessor.H
+20
+#include <
+jevois/DNN/Utils.H
+21
+#include <
+jevois/Util/Utils.H
+22
+#include <
+jevois/Image/RawImageOps.H
+23
+#include <
+jevois/Core/Engine.H
+24
+#include <
+jevois/Core/Module.H
+25
+#include <
+jevois/GPU/GUIhelper.H
+26
+27
+#include <opencv2/dnn.hpp>
+28
+#include <cmath>
+29
+30
+// ####################################################################################################
+31
+jevois::dnn::PostProcessorDetectOBB::~PostProcessorDetectOBB
+()
+32
+{ }
+33
+34
+// ####################################################################################################
+35
+void
+jevois::dnn::PostProcessorDetectOBB::freeze
+bool
+doit)
+36
+37
+classes::freeze(doit);
+38
+detecttypeobb::freeze(doit);
+39
+40
+41
+// ####################################################################################################
+42
+void
+jevois::dnn::PostProcessorDetectOBB::onParamChange
+(postprocessor::classes
+const
+&, std::string
+const
+& val)
+43
+44
+if
+(val.empty()) { itsLabels.clear();
+return
+; }
+45
+itsLabels =
+jevois::dnn::getClassLabels
+(val);
+46
+47
+48
+// ####################################################################################################
+49
+void
+jevois::dnn::PostProcessorDetectOBB::onParamChange
+(postprocessor::detecttypeobb
+const
+&,
+50
+postprocessor::DetectTypeOBB
+const
+& val)
+51
+52
+// Nothing so far
+53
+(void)val;
+54
+55
+56
+// ####################################################################################################
+57
+void
+jevois::dnn::PostProcessorDetectOBB::process
+(std::vector<cv::Mat>
+const
+& outs,
+jevois::dnn::PreProcessor
+* preproc)
+58
+59
+if
+(outs.empty())
+LFATAL
+"No outputs received, we need at least one."
+);
+60
+cv::Mat
+const
+& out = outs[0]; cv::MatSize
+const
+& msiz = out.size;
+61
+62
+float
+const
+confThreshold = cthresh::get() * 0.01F;
+63
+//float const boxThreshold = dthresh::get() * 0.01F;
+64
+float
+const
+nmsThreshold = nms::get() * 0.01F;
+65
+bool
+const
+sigmo = sigmoid::get();
+66
+int
+const
+fudge = classoffset::get();
+67
+itsImageSize = preproc->
+imagesize
+();
+68
+69
+// To draw boxes, we will need to:
+70
+// - scale from [0..1]x[0..1] to blobw x blobh
+71
+// - scale and center from blobw x blobh to input image w x h, provided by PreProcessor::b2i()
+72
+// - when using the GUI, we further scale and translate to OpenGL display coordinates using GUIhelper::i2d()
+73
+// Here we assume that the first blob sets the input size.
+74
+//cv::Size const bsiz = preproc->blobsize(0);
+75
+76
+// We keep 3 vectors here instead of creating a class to hold all of the data because OpenCV will need that for
+77
+// non-maximum suppression:
+78
+std::vector<int> classIds;
+79
+std::vector<float> confidences;
+80
+std::vector<cv::RotatedRect> boxes;
+81
+82
+// Here we just scale the coords from [0..1]x[0..1] to blobw x blobh:
+83
+try
+84
+85
+switch
+(detecttypeobb::get())
+86
+87
+// ----------------------------------------------------------------------------------------------------
+88
+case
+jevois::dnn::postprocessor::DetectTypeOBB::YOLOv8:
+89
+90
+// Network produces several (usually 3, for 3 strides) sets of 3 blobs: 1x64xHxW (raw boxes) and 1xCxHxW (class
+91
+// scores), 1x1xHxW (box angles):
+92
+if
+((outs.size() % 3) != 0 || msiz.dims() != 4 || msiz[0] != 1)
+93
+LTHROW
+"Expected several (usually 3, for 3 strides) sets of 2 blobs: 1x64xHxW (raw boxes), "
+94
+"1xCxHxW (class scores), and 1x1xHxW (box angles)"
+);
+95
+96
+int
+stride = 8;
+97
+int
+constexpr
+reg_max = 16;
+98
+99
+for
+size_t
+idx = 0; idx < outs.size(); idx += 3)
+100
+101
+cv::Mat
+const
+& bx = outs[idx]; cv::MatSize
+const
+& bx_siz = bx.size;
+102
+if
+(bx_siz.dims() != 4 || bx_siz[1] != 4 * reg_max)
+LTHROW
+"Output "
+<< idx <<
+" is not 4D 1x64xHxW"
+);
+103
+float
+const
+* bx_data = (
+float
+const
+*)bx.data;
+104
+105
+cv::Mat
+const
+& cls = outs[idx + 1]; cv::MatSize
+const
+& cls_siz = cls.size;
+106
+if
+(cls_siz.dims() != 4)
+LTHROW
+"Output "
+<< idx <<
+" is not 4D 1xCxHxW"
+);
+107
+float
+const
+* cls_data = (
+float
+const
+*)cls.data;
+108
+size_t
+const
+nclass = cls_siz[1];
+109
+110
+cv::Mat
+const
+& ang = outs[idx + 2]; cv::MatSize
+const
+& ang_siz = ang.size;
+111
+if
+(cls_siz.dims() != 4 || ang_siz[1] != 1)
+LTHROW
+"Output "
+<< idx <<
+" is not 4D 1x1xHxW"
+);
+112
+float
+const
+* ang_data = (
+float
+const
+*)ang.data;
+113
+114
+for
+int
+i = 2; i < 4; ++i)
+115
+if
+(cls_siz[i] != bx_siz[i])
+LTHROW
+"Mismatched HxW sizes for outputs "
+<< idx <<
+" .. "
+<< idx + 1);
+116
+117
+size_t
+const
+step = cls_siz[2] * cls_siz[3];
+// HxW
+118
+119
+// Loop over all locations:
+120
+for
+int
+y = 0; y < cls_siz[2]; ++y)
+121
+for
+int
+x = 0; x < cls_siz[3]; ++x)
+122
+123
+// Get the top class score:
+124
+size_t
+best_idx = 0;
+float
+confidence = cls_data[0];
+125
+for
+size_t
+i = 1; i < nclass; ++i)
+126
+if
+(cls_data[i * step] > confidence) { confidence = cls_data[i * step]; best_idx = i; }
+127
+128
+// Apply sigmoid to it, if needed (output layer did not already have sigmoid activations):
+129
+if
+(sigmo) confidence =
+jevois::dnn::sigmoid
+(confidence);
+130
+131
+if
+(confidence >= confThreshold)
+132
+133
+// Decode a rotated box from 64 received values and one angle:
+134
+// See Netron and https://github.com/ultralytics/ultralytics/issues/624
+135
+136
+// Raw angle is in [0..1] with an offset, such that a value 0.25 means 0.0:
+137
+// See in Netron how after the last conv layer for angles, 0.25 is subtracted then mul by pi:
+138
+float
+angle = (
+jevois::dnn::sigmoid
+(*ang_data) - 0.25F) * M_PI;
+139
+140
+// Angle in [-pi/4,3/4 pi) -> [-pi/2,pi/2)
+141
+if
+(angle >= 0.5F * M_PI && angle <= 0.75F * M_PI) angle -= M_PI;
+142
+143
+float
+const
+cosa = std::cos(angle);
+144
+float
+const
+sina = std::sin(angle);
+145
+146
+// Now the rotated box:
+147
+float
+dst[reg_max];
+148
+float
+const
+ltx =
+softmax_dfl
+(bx_data, dst, reg_max, step);
+149
+float
+const
+lty =
+softmax_dfl
+(bx_data + reg_max * step, dst, reg_max, step);
+150
+float
+const
+rbx =
+softmax_dfl
+(bx_data + 2 * reg_max * step, dst, reg_max, step);
+151
+float
+const
+rby =
+softmax_dfl
+(bx_data + 3 * reg_max * step, dst, reg_max, step);
+152
+153
+float
+const
+xf = 0.5F * (rbx - ltx);
+154
+float
+const
+yf = 0.5F * (rby - lty);
+155
+156
+float
+const
+cx = (x + 0.5F + xf * cosa - yf * sina) * stride;
+157
+float
+const
+cy = (y + 0.5F + xf * sina + yf * cosa) * stride;
+158
+float
+const
+width = (ltx + rbx) * stride;
+159
+float
+const
+height = (lty + rby) * stride;
+160
+161
+// Store this detection:
+162
+boxes.push_back(cv::RotatedRect(cv::Point2f(cx, cy), cv::Size2f(width, height), angle * 180.0F / M_PI));
+163
+classIds.push_back(
+int
+(best_idx) + fudge);
+164
+confidences.push_back(confidence);
+165
+166
+167
+// Move to the next location:
+168
+++cls_data; ++bx_data; ++ang_data;
+169
+170
+171
+// Move to the next scale:
+172
+stride *= 2;
+173
+174
+175
+break
+176
+177
+// ----------------------------------------------------------------------------------------------------
+178
+default
+179
+// Do not use strget() here as it will throw!
+180
+LTHROW
+"Unsupported Post-processor detecttype "
+<<
+int
+(detecttypeobb::get()));
+181
+182
+183
+// Abort here if the received outputs were malformed:
+184
+catch
+(std::exception
+const
+& e)
+185
+186
+std::string err =
+"Selected detecttypeobb is "
++ detecttypeobb::strget() +
+" and network produced:\n\n"
+187
+for
+(cv::Mat
+const
+& m : outs) err +=
+"- "
+jevois::dnn::shapestr
+(m) +
+"\n"
+188
+err +=
+"\nFATAL ERROR(s):\n\n"
+189
+err += e.what();
+190
+LFATAL
+(err);
+191
+192
+193
+// Cleanup overlapping boxes, either globally or per class, and possibly limit number of reported boxes:
+194
+std::vector<int> indices;
+195
+/* not supported yet by opencv...
+196
+if (nmsperclass::get())
+197
+cv::dnn::NMSBoxesBatched(boxes, confidences, classIds, confThreshold, nmsThreshold, indices, 1.0F, maxnbox::get());
+198
+else */
+199
+cv::dnn::NMSBoxes(boxes, confidences, confThreshold, nmsThreshold, indices, 1.0F, maxnbox::get());
+200
+201
+// Now adjust the boxes from blob size to input image size:
+202
+for
+(cv::RotatedRect & b : boxes)
+203
+204
+preproc->
+b2i
+(b.center.x, b.center.y);
+205
+preproc->
+b2is
+(b.size.width, b.size.height);
+206
+207
+208
+// Store results:
+209
+itsDetections.clear();
+bool
+namonly = namedonly::get();
+210
+for
+size_t
+i = 0; i < indices.size(); ++i)
+211
+212
+int
+idx = indices[i];
+213
+cv::RotatedRect
+const
+& box = boxes[idx];
+214
+std::string
+const
+label =
+jevois::dnn::getLabel
+(itsLabels, classIds[idx], namonly);
+215
+if
+(namonly ==
+false
+|| label.empty() ==
+false
+216
+217
+jevois::ObjReco
+{ confidences[idx] * 100.0f, label };
+218
+std::vector<jevois::ObjReco> ov;
+219
+ov.emplace_back(
+);
+220
+jevois::ObjDetectOBB
+od { box, ov };
+221
+itsDetections.emplace_back(od);
+222
+223
+224
+225
+226
+// ####################################################################################################
+227
+void
+jevois::dnn::PostProcessorDetectOBB::report
+jevois::StdModule
+* mod,
+jevois::RawImage
+* outimg,
+228
+jevois::OptGUIhelper
+* helper,
+bool
+overlay,
+229
+bool
+/*idle*/
+230
+231
+bool
+const
+serreport = serialreport::get();
+232
+233
+for
+jevois::ObjDetectOBB
+const
+: itsDetections)
+234
+235
+std::string categ, label;
+236
+237
+if
+.reco.empty())
+238
+239
+categ =
+"unknown"
+240
+label =
+"unknown"
+241
+242
+else
+243
+244
+categ =
+.reco[0].category;
+245
+label =
+jevois::sformat
+"%s: %.2f"
+, categ.c_str(),
+.reco[0].score);
+246
+247
+248
+// If desired, draw boxes in output image:
+249
+if
+(outimg && overlay)
+250
+251
+std::vector<cv::Point2f> pts;
+.rect.points(pts);
+252
+for
+size_t
+i = 1; i < pts.size(); ++i)
+253
+jevois::rawimage::drawLine
+(*outimg, pts[i-1].x, pts[i-1].y, pts[i].x, pts[i].y, 2,
+jevois::yuyv::LightGreen
+);
+254
+jevois::rawimage::drawLine
+(*outimg, pts.back().x, pts.back().y, pts[0].x, pts[0].y, 2,
+jevois::yuyv::LightGreen
+);
+255
+256
+jevois::rawimage::writeText
+(*outimg, label, pts[0].x + 6, pts[0].y + 2,
+jevois::yuyv::LightGreen
+257
+jevois::rawimage::Font10x20
+);
+258
+259
+260
+#ifdef JEVOIS_PRO
+261
+// If desired, draw results on GUI:
+262
+if
+(helper)
+263
+264
+int
+col =
+jevois::dnn::stringToRGBA
+(categ, 0xff);
+265
+std::vector<cv::Point2f> corners;
+.rect.points(corners);
+266
+helper->
+drawPoly
+(corners, col,
+true
+);
+267
+helper->
+drawText
+(corners[1].x + 3.0f, corners[1].y + 3.0f, label.c_str(), col);
+268
+269
+#else
+270
+(void)helper;
+// keep compiler happy
+271
+#endif
+272
+273
+// If desired, send results to serial port:
+274
+if
+(mod && serreport) mod->
+sendSerialObjDetImg2D
+(itsImageSize.width, itsImageSize.height,
+);
+275
+276
+277
+278
+// ####################################################################################################
+279
+std::vector<jevois::ObjDetectOBB>
+const
+jevois::dnn::PostProcessorDetectOBB::latestDetectionsOBB
+()
+const
+280
+return
+itsDetections; }
+Utils.H
+Engine.H
+#define o
+Definition
+Font10x20.C:6
+GUIhelper.H
+LTHROW
+#define LTHROW(msg)
+Definition
+Log.H:251
+Module.H
+PostProcessorDetectOBB.H
+PreProcessor.H
+RawImageOps.H
+Utils.H
+jevois::GUIhelper
+Helper class to assist modules in creating graphical and GUI elements.
+Definition
+GUIhelper.H:133
+jevois::GUIhelper::drawText
+void drawText(float x, float y, char const *txt, ImU32 col=IM_COL32(128, 255, 128, 255))
+Draw text over an image.
+Definition
+GUIhelper.C:634
+jevois::GUIhelper::drawPoly
+void drawPoly(std::vector< cv::Point > const &pts, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw polygon over an image.
+Definition
+GUIhelper.C:524
+jevois::RawImage
+A raw image as coming from a V4L2 Camera and/or being sent out to a USB Gadget.
+Definition
+RawImage.H:111
+jevois::StdModule
+Base class for a module that supports standardized serial messages.
+Definition
+Module.H:234
+jevois::StdModule::sendSerialObjDetImg2D
+void sendSerialObjDetImg2D(unsigned int camw, unsigned int camh, float x, float y, float w, float h, std::vector< ObjReco > const &res)
+Send a standardized object detection + recognition message.
+Definition
+Module.C:572
+jevois::dnn::PostProcessorDetectOBB::report
+void report(jevois::StdModule *mod, jevois::RawImage *outimg=nullptr, jevois::OptGUIhelper *helper=nullptr, bool overlay=true, bool idle=false) override
+Report what happened in last process() to console/output video/GUI.
+Definition
+PostProcessorDetectOBB.C:227
+jevois::dnn::PostProcessorDetectOBB::latestDetectionsOBB
+std::vector< ObjDetectOBB > const & latestDetectionsOBB() const
+Get the latest detections, use with caution, not thread-safe.
+Definition
+PostProcessorDetectOBB.C:279
+jevois::dnn::PostProcessorDetectOBB::onParamChange
+void onParamChange(postprocessor::detecttypeobb const &param, postprocessor::DetectTypeOBB const &val) override
+Definition
+PostProcessorDetectOBB.C:49
+jevois::dnn::PostProcessorDetectOBB::freeze
+void freeze(bool doit) override
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+PostProcessorDetectOBB.C:35
+jevois::dnn::PostProcessorDetectOBB::~PostProcessorDetectOBB
+virtual ~PostProcessorDetectOBB()
+Destructor.
+Definition
+PostProcessorDetectOBB.C:31
+jevois::dnn::PostProcessorDetectOBB::process
+void process(std::vector< cv::Mat > const &outs, PreProcessor *preproc) override
+Process outputs and draw/send some results.
+Definition
+PostProcessorDetectOBB.C:57
+jevois::dnn::PreProcessor
+Pre-Processor for neural network pipeline.
+Definition
+PreProcessor.H:110
+jevois::dnn::PreProcessor::imagesize
+cv::Size const & imagesize() const
+Access the last processed image size.
+Definition
+PreProcessor.C:39
+jevois::dnn::PreProcessor::b2is
+void b2is(float &sx, float &sy, size_t blobnum=0)
+Convert box size from blob back to original image.
+Definition
+PreProcessor.C:81
+jevois::dnn::PreProcessor::b2i
+void b2i(float &x, float &y, size_t blobnum=0)
+Convert coordinates from blob back to original image.
+Definition
+PreProcessor.C:50
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+jevois::dnn::getClassLabels
+std::map< int, std::string > getClassLabels(std::string const &arg)
+Get class labels from either a list or a file.
+Definition
+Utils.C:25
+jevois::dnn::getLabel
+std::string getLabel(std::map< int, std::string > const &labels, int id, bool namedonly=false)
+Get a label from an id.
+Definition
+Utils.C:85
+jevois::dnn::sigmoid
+float sigmoid(float x)
+Compute sigmoid using fastexp.
+jevois::dnn::softmax_dfl
+float softmax_dfl(float const *src, float *dst, size_t const n, size_t const stride=1)
+Compute softmax and return DFL distance.
+Definition
+Utils.C:769
+jevois::dnn::stringToRGBA
+int stringToRGBA(std::string const &label, unsigned char alpha=128)
+Compute a color from a label name.
+Definition
+Utils.C:97
+jevois::dnn::shapestr
+std::string shapestr(cv::Mat const &m)
+Get a string of the form: "nD AxBxC... TYPE" from an n-dimensional cv::Mat with data type TYPE.
+Definition
+Utils.C:126
+jevois::rawimage::writeText
+void writeText(RawImage &img, std::string const &txt, int x, int y, unsigned int col, Font font=Font6x10)
+Write some text in an image.
+Definition
+RawImageOps.C:690
+jevois::rawimage::drawLine
+void drawLine(RawImage &img, int x1, int y1, int x2, int y2, unsigned int thick, unsigned int col)
+Draw a line in a YUYV image.
+Definition
+RawImageOps.C:564
+jevois::rawimage::Font10x20
+@ Font10x20
+Definition
+RawImageOps.H:160
+jevois::sformat
+std::string sformat(char const *fmt,...) __attribute__((format(__printf__
+Create a string using printf style arguments.
+Definition
+Utils.C:440
+jevois::yuyv::LightGreen
+unsigned short constexpr LightGreen
+YUYV color value.
+Definition
+RawImage.H:63
+jevois::ObjDetectOBB
+A trivial struct to store object detection results, for oriented bounding boxes (OBB)
+Definition
+ObjDetect.H:38
+jevois::ObjReco
+A trivial struct to store object recognition results.
+Definition
+ObjReco.H:25
+src
+jevois
+DNN
+PostProcessorDetectOBB.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/YOLOjevois_8C_source.html
+TITRE: JeVois: src/jevois/DNN/YOLOjevois.C Source File
+================================================================================
+
+JeVois: src/jevois/DNN/YOLOjevois.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+YOLOjevois.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2024 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#ifdef JEVOIS_PRO
+19
+20
+#include <
+jevois/DNN/YOLOjevois.H
+21
+#include <
+jevois/DNN/CLIP.H
+22
+#include <
+jevois/DNN/Utils.H
+23
+#include <
+jevois/DNN/NetworkONNX.H
+24
+#include <
+jevois/GPU/GUIhelper.H
+25
+26
+// ####################################################################################################
+27
+jevois::dnn::YOLOjevois::YOLOjevois
+(std::string
+const
+& instance, std::map<int, std::string> & labels) :
+28
+jevois
+::
+Component
+(instance), itsLabels(labels)
+29
+{ }
+30
+31
+// ####################################################################################################
+32
+void
+jevois::dnn::YOLOjevois::setup
+size_t
+nclass,
+jevois::GUIhelper
+* helper, std::shared_ptr<jevois::dnn::Network> net)
+33
+34
+itsNumClasses = nclass;
+35
+itsHelper = helper;
+36
+itsNetwork = net;
+37
+38
+39
+// ####################################################################################################
+40
+jevois::dnn::YOLOjevois::~YOLOjevois
+()
+41
+{ }
+42
+43
+// ####################################################################################################
+44
+void
+jevois::dnn::YOLOjevois::freeze
+bool
+doit)
+45
+46
+clipmodel::freeze(doit);
+47
+textmodel::freeze(doit);
+48
+49
+50
+// ####################################################################################################
+51
+int
+jevois::dnn::YOLOjevois::textEmbeddingSize
+()
+52
+53
+if
+(ready() ==
+false
+LFATAL
+"Not ready yet"
+);
+54
+if
+(itsCLIP)
+return
+itsCLIP->textEmbeddingSize();
+55
+else
+return
+0;
+56
+57
+58
+// ####################################################################################################
+59
+int
+jevois::dnn::YOLOjevois::imageEmbeddingSize
+()
+60
+61
+if
+(ready() ==
+false
+LFATAL
+"Not ready yet"
+);
+62
+if
+(itsCLIP)
+return
+itsCLIP->imageEmbeddingSize();
+63
+else
+return
+0;
+64
+65
+66
+namespace
+67
+68
+// Caution this function checks nothing, only to be used internally here:
+69
+inline
+void
+setEmbedding(cv::Mat & all,
+size_t
+clsid, cv::Mat
+const
+& e)
+70
+71
+memcpy(all.data + clsid * e.cols *
+sizeof
+float
+), e.data, e.cols *
+sizeof
+float
+));
+72
+73
+74
+75
+// ####################################################################################################
+76
+void
+jevois::dnn::YOLOjevois::update
+size_t
+const
+classnum, std::string
+const
+& label)
+77
+78
+if
+(ready() ==
+false
+LFATAL
+"Not ready"
+);
+79
+if
+(itsCLIP->textEmbeddingSize() == 0)
+LFATAL
+"Our CLIP model does not have a text encoder"
+);
+80
+if
+(classnum >= itsNumClasses)
+LFATAL
+"Invalid class #"
+<< classnum <<
+" given "
+<< itsNumClasses <<
+" classes"
+);
+81
+82
+setEmbedding(itsEmbeddings, classnum, itsCLIP->textEmbedding(label));
+83
+itsLabels[classnum] = label;
+84
+itsCLIPimages[classnum] = cv::Mat();
+85
+updateMainNetwork();
+86
+itsHelper->reportInfo(
+"Updated class "
++ std::to_string(classnum) +
+" to ["
++ label +
+']'
+);
+87
+88
+89
+// ####################################################################################################
+90
+void
+jevois::dnn::YOLOjevois::update
+size_t
+const
+classnum, cv::Mat
+const
+& img)
+91
+92
+if
+(ready() ==
+false
+LFATAL
+"Not ready"
+);
+93
+if
+(itsCLIP->imageEmbeddingSize() == 0)
+LFATAL
+"Our CLIP model does not have an image encoder"
+);
+94
+if
+(classnum >= itsNumClasses)
+LFATAL
+"Invalid class #"
+<< classnum <<
+" given "
+<< itsNumClasses <<
+" classes"
+);
+95
+96
+setEmbedding(itsEmbeddings, classnum, itsCLIP->imageEmbedding(img));
+97
+itsLabels[classnum] =
+"<image for class "
++ std::to_string(classnum) +
+'>'
+98
+itsCLIPimages[classnum] = img;
+99
+updateMainNetwork();
+100
+itsHelper->reportInfo(
+"Updated class "
++ std::to_string(classnum) +
+" from image"
+);
+101
+102
+103
+// ####################################################################################################
+104
+bool
+jevois::dnn::YOLOjevois::ready
+()
+105
+106
+// If we are loaded, we are ready to process:
+107
+if
+(itsLoaded.load())
+return
+true
+108
+109
+// If we are loading, check whether loading is complete or threw, otherwise return false as we keep loading:
+110
+if
+(itsLoading.load())
+111
+112
+if
+(itsLoadFut.valid() && itsLoadFut.wait_for(std::chrono::milliseconds(2)) == std::future_status::ready)
+113
+114
+try
+{ itsLoadFut.get();
+LINFO
+"YOLOjevois loaded."
+);
+return
+true
+; }
+115
+catch
+(...) { itsLoading.store(
+false
+);
+jevois::warnAndRethrowException
+(); }
+116
+117
+return
+false
+118
+119
+120
+// Otherwise, trigger an async load:
+121
+itsLoading.store(
+true
+);
+122
+itsLoadFut =
+jevois::async
+(std::bind(&
+jevois::dnn::YOLOjevois::load
+this
+));
+123
+LINFO
+"Loading YOLOjevois helper networks..."
+);
+124
+125
+return
+false
+126
+127
+128
+// ####################################################################################################
+129
+void
+jevois::dnn::YOLOjevois::load
+()
+130
+131
+if
+(! itsNetwork || itsNumClasses == 0 || itsHelper ==
+nullptr
+LFATAL
+"Need to call setup() first"
+);
+132
+133
+itsCLIP.reset();
+134
+if
+(itsAuxNet) { itsAuxNet.reset(); removeSubComponent(
+"auxnet"
+false
+); }
+135
+136
+// First, load the CLIP model:
+137
+std::string
+const
+clipname = yolojevois::clipmodel::get();
+138
+if
+(clipname.empty())
+return
+139
+itsCLIP.reset(
+new
+jevois::dnn::CLIP
+jevois::absolutePath
+JEVOIS_SHARE_PATH
+"/clip"
+, clipname)));
+140
+if
+(itsCLIP->textEmbeddingSize() == 0)
+LFATAL
+"CLIP model must have at least a text encoder"
+);
+141
+bool
+const
+has_image_encoder = (itsCLIP->imageEmbeddingSize() > 0) ?
+true
+false
+142
+143
+// Then process all the labels through the CLIP encoder:
+144
+int
+const
+vec_dim = itsCLIP->textEmbeddingSize();
+145
+itsEmbeddings = cv::Mat(std::vector<int> { 1, int(itsNumClasses), vec_dim }, CV_32F );
+146
+itsCLIPimages.clear();
+147
+148
+for
+size_t
+i = 0; i < itsNumClasses; ++i)
+149
+150
+std::string label =
+jevois::dnn::getLabel
+(itsLabels, i,
+true
+);
+151
+cv::Mat img;
+152
+153
+if
+(label.empty() ||
+jevois::stringStartsWith
+(label,
+"<live-selected "
+))
+154
+155
+itsHelper->reportError(
+"Invalid label for class "
++ std::to_string(i) +
+" -- FORCING TO 'person'"
+);
+156
+label =
+"person"
+; itsLabels[i] = label;
+157
+158
+159
+if
+jevois::stringStartsWith
+(label,
+"imagefile:"
+))
+160
+161
+if
+(has_image_encoder)
+162
+163
+// Class is defined by an image on disk; load it and compute embedding:
+164
+std::string imgpath =
+jevois::absolutePath
+JEVOIS_CUSTOM_DNN_PATH
+, label.substr(10));
+165
+cv::Mat img_bgr = cv::imread(imgpath, cv::IMREAD_COLOR);
+166
+if
+(img_bgr.empty())
+167
+168
+itsHelper->reportError(
+"Failed to read "
++ imgpath +
+" -- FORCING CLASS "
++std::to_string(i)+
+" TO 'person'"
+);
+169
+label =
+"person"
+; itsLabels[i] = label;
+170
+setEmbedding(itsEmbeddings, i, itsCLIP->textEmbedding(label));
+171
+172
+else
+173
+174
+cv::cvtColor(img_bgr, img, cv::COLOR_BGR2RGB);
+175
+LINFO
+"Computing CLIP image embedding for class "
+<< i <<
+" ["
+<< imgpath <<
+"] ..."
+);
+176
+setEmbedding(itsEmbeddings, i, itsCLIP->imageEmbedding(img));
+177
+itsLabels[i] =
+"<from image file>"
+// we lose the file name here but will recompute it on save anyway
+178
+179
+180
+else
+181
+182
+itsHelper->reportError(
+"No CLIP image encoder -- FORCING CLASS "
++std::to_string(i)+
+" TO 'person'"
+);
+183
+label =
+"person"
+; itsLabels[i] = label;
+184
+setEmbedding(itsEmbeddings, i, itsCLIP->textEmbedding(label));
+185
+186
+187
+else
+188
+189
+LINFO
+"Computing CLIP text embedding for class "
+<< i <<
+" ["
+<< label <<
+"] ..."
+);
+190
+setEmbedding(itsEmbeddings, i, itsCLIP->textEmbedding(label));
+191
+192
+itsCLIPimages.emplace_back(img);
+193
+194
+LINFO
+"CLIP embeddings ready for "
+<< itsNumClasses <<
+" object classes"
+);
+195
+196
+// Then possibly load the ONNX helper:
+197
+std::string
+const
+onnxmodel = yolojevois::textmodel::get();
+198
+if
+(onnxmodel.empty() ==
+false
+199
+200
+std::string
+const
+m =
+jevois::absolutePath
+JEVOIS_SHARE_PATH
+, onnxmodel);
+201
+LINFO
+"Loading embedding helper "
+<< m <<
+" ..."
+);
+202
+203
+itsAuxNet = addSubComponent<jevois::dnn::NetworkONNX>(
+"auxnet"
+);
+204
+itsAuxNet->hideAllParams(
+true
+);
+205
+itsAuxNet->setParamStringUnique(
+"model"
+, m);
+206
+207
+int
+iter = 0;
+208
+while
+(itsAuxNet->ready() ==
+false
+&& iter++ < 1000) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+209
+if
+(iter == 1000)
+LFATAL
+"Timeout waiting for embedding helper to load..."
+);
+210
+211
+LINFO
+"Embedding helper ready."
+);
+212
+213
+214
+// We are officially loaded now:
+215
+itsLoaded.store(
+true
+);
+216
+itsLoading.store(
+false
+);
+217
+218
+// Update our outputs:
+219
+updateMainNetwork();
+220
+221
+222
+// ####################################################################################################
+223
+void
+jevois::dnn::YOLOjevois::updateMainNetwork()
+224
+225
+if
+(ready() ==
+false
+LFATAL
+"Not ready"
+);
+226
+if
+(! itsNetwork)
+LFATAL
+"No main network to update"
+);
+227
+if
+(itsNetwork->ready() ==
+false
+LFATAL
+"Main network not ready"
+);
+228
+229
+if
+(itsAuxNet)
+230
+231
+// Run the aux net to get 5 tensors from the CLIP embeddings:
+232
+std::vector<cv::Mat> ins; ins.push_back(itsEmbeddings);
+233
+std::vector<std::string> ignored_info;
+234
+std::vector<cv::Mat> outs = itsAuxNet->process(ins, ignored_info);
+235
+236
+// Now update the main network:
+237
+for
+size_t
+i = 0; i < outs.size(); ++i)
+238
+itsNetwork->setExtraInputFromFloat32(i + 1
+/* input number */
+, outs[i]);
+239
+240
+else
+241
+242
+// Using CLIP only, main network should expect only 1 extra input for CLIP embeddings:
+243
+itsNetwork->setExtraInputFromFloat32(1
+/* input number */
+, itsEmbeddings);
+244
+245
+246
+LINFO
+"Updated main network with modified classes."
+);
+247
+248
+249
+// ####################################################################################################
+250
+cv::Mat
+const
+jevois::dnn::YOLOjevois::image
+size_t
+const
+classid)
+const
+251
+252
+if
+(classid >= itsNumClasses)
+LFATAL
+"Invalid class id "
+<<classid<<
+" (only have "
+<< itsNumClasses<<
+" classes)"
+);
+253
+return
+itsCLIPimages[classid];
+254
+255
+256
+#endif
+// JEVOIS_PRO
+257
+CLIP.H
+JEVOIS_CUSTOM_DNN_PATH
+#define JEVOIS_CUSTOM_DNN_PATH
+Directory where custom DNN models are stored:
+Definition
+Config.H:85
+JEVOIS_SHARE_PATH
+#define JEVOIS_SHARE_PATH
+Base path for shared files (e.g., neural network weights, etc)
+Definition
+Config.H:82
+Utils.H
+GUIhelper.H
+NetworkONNX.H
+YOLOjevois.H
+jevois::Component
+A component of a model hierarchy.
+Definition
+Component.H:182
+jevois::GUIhelper
+Helper class to assist modules in creating graphical and GUI elements.
+Definition
+GUIhelper.H:133
+jevois::dnn::CLIP
+Interface to a CLIP model used to compute text and image embeddings.
+Definition
+CLIP.H:36
+jevois::dnn::YOLOjevois::setup
+void setup(size_t nclass, GUIhelper *helper, std::shared_ptr< jevois::dnn::Network > net)
+Definition
+YOLOjevois.C:32
+jevois::dnn::YOLOjevois::update
+void update(size_t const classnum, std::string const &label)
+Update one class using text.
+Definition
+YOLOjevois.C:76
+jevois::dnn::YOLOjevois::textEmbeddingSize
+int textEmbeddingSize()
+Get CLIP text embedding size, or 0 if we do not have a CLIP text encoder.
+Definition
+YOLOjevois.C:51
+jevois::dnn::YOLOjevois::freeze
+void freeze(bool doit)
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+YOLOjevois.C:44
+jevois::dnn::YOLOjevois::~YOLOjevois
+virtual ~YOLOjevois()
+Virtual destructor.
+Definition
+YOLOjevois.C:40
+jevois::dnn::YOLOjevois::ready
+bool ready()
+Are we ready to work, or still loading our networks?
+Definition
+YOLOjevois.C:104
+jevois::dnn::YOLOjevois::imageEmbeddingSize
+int imageEmbeddingSize()
+Get CLIP image embedding size, or 0 if we do not have a CLIP image encoder.
+Definition
+YOLOjevois.C:59
+jevois::dnn::YOLOjevois::image
+cv::Mat const & image(size_t const classid) const
+Access our class definition images.
+Definition
+YOLOjevois.C:250
+jevois::dnn::YOLOjevois::YOLOjevois
+YOLOjevois(std::string const &instance, std::map< int, std::string > &labels)
+Inherited constructor ok; must call setup() before using.
+Definition
+YOLOjevois.C:27
+jevois::dnn::YOLOjevois::load
+void load()
+Load CLIP and ONNX networks, in a non-blocking thread.
+Definition
+YOLOjevois.C:129
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+jevois::warnAndRethrowException
+void warnAndRethrowException(std::string const &prefix="")
+Convenience function to catch an exception, issue some LERROR (depending on type),...
+Definition
+Log.C:203
+LINFO
+#define LINFO(msg)
+Convenience macro for users to print out console or syslog messages, INFO level.
+Definition
+Log.H:194
+jevois::dnn::getLabel
+std::string getLabel(std::map< int, std::string > const &labels, int id, bool namedonly=false)
+Get a label from an id.
+Definition
+Utils.C:85
+jevois::async
+std::future< std::invoke_result_t< std::decay_t< Function >, std::decay_t< Args >... > > async(Function &&f, Args &&... args)
+Async execution using a thread pool.
+jevois::absolutePath
+std::filesystem::path absolutePath(std::filesystem::path const &root, std::filesystem::path const &path)
+Compute an absolute path from two paths.
+Definition
+Utils.C:386
+jevois::stringStartsWith
+bool stringStartsWith(std::string const &str, std::string const &prefix)
+Return true if str starts with prefix (including if both strings are equal)
+Definition
+Utils.C:295
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+src
+jevois
+DNN
+YOLOjevois.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/PostProcessorPython_8C_source.html
+TITRE: JeVois: src/jevois/DNN/PostProcessorPython.C Source File
+================================================================================
+
+JeVois: src/jevois/DNN/PostProcessorPython.C Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+PostProcessorPython.C
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2021 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#include <
+jevois/DNN/PostProcessorPython.H
+19
+#include <
+jevois/Core/PythonModule.H
+20
+#include <
+jevois/Core/PythonSupport.H
+21
+#include <
+jevois/Core/Engine.H
+22
+#include <
+jevois/DNN/PreProcessorPython.H
+23
+24
+// ####################################################################################################
+25
+namespace
+jevois
+26
+27
+namespace
+dnn
+28
+29
+class
+PostProcessorPythonImpl
+public
+Component
+public
+PythonWrapper
+30
+31
+public
+32
+using
+Component::Component
+33
+void
+loadpy
+(std::string
+const
+& pypath);
+34
+virtual
+~PostProcessorPythonImpl
+();
+35
+void
+freeze
+bool
+doit);
+36
+void
+process
+(std::vector<cv::Mat>
+const
+& outs,
+PreProcessor
+* preproc);
+37
+void
+report
+jevois::StdModule
+* mod,
+jevois::RawImage
+* outimg =
+nullptr
+38
+jevois::OptGUIhelper
+* helper =
+nullptr
+bool
+overlay =
+true
+bool
+idle =
+false
+);
+39
+};
+40
+41
+42
+43
+// ####################################################################################################
+44
+// ####################################################################################################
+45
+jevois::dnn::PostProcessorPythonImpl::~PostProcessorPythonImpl
+()
+46
+47
+engine()->
+unRegisterPythonComponent
+this
+);
+48
+49
+50
+// ####################################################################################################
+51
+void
+jevois::dnn::PostProcessorPythonImpl::freeze
+bool
+doit)
+52
+53
+if
+jevois::python::hasattr
+PythonWrapper::pyinst
+(),
+"freeze"
+))
+PythonWrapper::pyinst
+().attr(
+"freeze"
+)(doit);
+54
+55
+56
+// ####################################################################################################
+57
+void
+jevois::dnn::PostProcessorPythonImpl::loadpy
+(std::string
+const
+& pypath)
+58
+59
+// Load the code and instantiate the python object:
+60
+PythonWrapper::pythonload
+JEVOIS_SHARE_PATH
+"/"
++ pypath);
+61
+LINFO
+"Loaded "
+<< pypath);
+62
+63
+// Now that we are fully up and ready, call python module's init() function if implemented:
+64
+if
+jevois::python::hasattr
+PythonWrapper::pyinst
+(),
+"init"
+))
+PythonWrapper::pyinst
+().attr(
+"init"
+)();
+65
+66
+67
+// ####################################################################################################
+68
+void
+jevois::dnn::PostProcessorPythonImpl::process
+(std::vector<cv::Mat>
+const
+& outs,
+69
+jevois::dnn::PreProcessor
+* preproc)
+70
+71
+if
+jevois::python::hasattr
+PythonWrapper::pyinst
+(),
+"process"
+) ==
+false
+72
+LFATAL
+"No process() method provided. It is required, please add it to your Python post-processor."
+);
+73
+74
+boost::python::list lst =
+jevois::python::pyVecToList
+(outs);
+75
+PythonWrapper::pyinst
+().attr(
+"process"
+)(lst, boost::python::ptr(preproc->
+getPreProcForPy
+().get()));
+76
+77
+78
+// ####################################################################################################
+79
+void
+jevois::dnn::PostProcessorPythonImpl::report
+jevois::StdModule
+*,
+jevois::RawImage
+* outimg,
+80
+jevois::OptGUIhelper
+* helper,
+bool
+overlay,
+bool
+idle)
+81
+82
+if
+jevois::python::hasattr
+PythonWrapper::pyinst
+(),
+"report"
+) ==
+false
+83
+LFATAL
+"No process() method provided. It is required, please add it to your Python post-processor."
+);
+84
+85
+// default constructed boost::python::object is None on the python side
+86
+if
+(outimg)
+87
+88
+#ifdef JEVOIS_PRO
+89
+if
+(helper)
+90
+91
+jevois::GUIhelperPython
+helperpy(helper);
+92
+PythonWrapper::pyinst
+().attr(
+"report"
+)(boost::ref(*outimg), boost::ref(helperpy), overlay, idle);
+93
+94
+else
+95
+#endif
+96
+PythonWrapper::pyinst
+().attr(
+"report"
+)(boost::ref(*outimg), boost::python::object(), overlay, idle);
+97
+98
+else
+99
+100
+#ifdef JEVOIS_PRO
+101
+if
+(helper)
+102
+103
+jevois::GUIhelperPython
+helperpy(helper);
+104
+PythonWrapper::pyinst
+().attr(
+"report"
+)(boost::python::object(), boost::ref(helperpy), overlay, idle);
+105
+106
+else
+107
+#endif
+108
+PythonWrapper::pyinst
+().attr(
+"report"
+)(boost::python::object(), boost::python::object(), overlay, idle);
+109
+110
+111
+#ifndef JEVOIS_PRO
+112
+(void)helper;
+// avoid compiler warning
+113
+#endif
+114
+115
+116
+// ####################################################################################################
+117
+// ####################################################################################################
+118
+jevois::dnn::PostProcessorPython::PostProcessorPython
+(std::string
+const
+& instance) :
+119
+jevois
+::dnn::
+PostProcessor
+(instance)
+120
+121
+itsImpl
+= addSubComponent<jevois::dnn::PostProcessorPythonImpl>(
+"pypost"
+);
+122
+123
+124
+// ####################################################################################################
+125
+jevois::dnn::PostProcessorPython::~PostProcessorPython
+()
+126
+{ }
+127
+128
+// ####################################################################################################
+129
+void
+jevois::dnn::PostProcessorPython::freeze
+bool
+doit)
+130
+131
+// First our own params:
+132
+pypost::freeze(doit);
+133
+134
+// Then our python params:
+135
+itsImpl->freeze(doit);
+136
+137
+138
+// ####################################################################################################
+139
+void
+jevois::dnn::PostProcessorPython::onParamChange
+(jevois::dnn::postprocessor::pypost
+const
+&,
+140
+std::string
+const
+& newval)
+141
+142
+if
+(newval.empty() ==
+false
+) itsImpl->loadpy(newval);
+143
+144
+145
+// ####################################################################################################
+146
+void
+jevois::dnn::PostProcessorPython::process
+(std::vector<cv::Mat>
+const
+& outs,
+jevois::dnn::PreProcessor
+* preproc)
+147
+{ itsImpl->process(outs, preproc); }
+148
+149
+// ####################################################################################################
+150
+void
+jevois::dnn::PostProcessorPython::report
+jevois::StdModule
+* mod,
+jevois::RawImage
+* outimg,
+151
+jevois::OptGUIhelper
+* helper,
+bool
+overlay,
+bool
+idle)
+152
+{ itsImpl->report(mod, outimg, helper, overlay, idle); }
+153
+JEVOIS_SHARE_PATH
+#define JEVOIS_SHARE_PATH
+Base path for shared files (e.g., neural network weights, etc)
+Definition
+Config.H:82
+Engine.H
+PostProcessorPython.H
+PreProcessorPython.H
+PythonModule.H
+PythonSupport.H
+jevois::Component
+A component of a model hierarchy.
+Definition
+Component.H:182
+jevois::Engine::unRegisterPythonComponent
+void unRegisterPythonComponent(Component *comp)
+Unregister a component as linked to some python code, used by dynamic params created in python.
+Definition
+Engine.C:3025
+jevois::GUIhelperPython
+Wrapper around GUIhelper to be used by Python.
+Definition
+PythonModule.H:225
+jevois::GUIhelper
+Helper class to assist modules in creating graphical and GUI elements.
+Definition
+GUIhelper.H:133
+jevois::ParameterRegistry::Component
+friend class Component
+Allow Component and DynamicParameter to access our registry data, everyone else is locked out.
+Definition
+ParameterRegistry.H:51
+jevois::PythonWrapper
+Helper class to run python code from C++.
+Definition
+PythonWrapper.H:42
+jevois::PythonWrapper::pythonload
+void pythonload(std::string const &path)
+Init from path if default constructor was used.
+Definition
+PythonWrapper.C:34
+jevois::PythonWrapper::pyinst
+boost::python::object & pyinst()
+Get the python class pyinst, or throw if construction error occurred (e.g., file not found)
+Definition
+PythonWrapper.C:85
+jevois::RawImage
+A raw image as coming from a V4L2 Camera and/or being sent out to a USB Gadget.
+Definition
+RawImage.H:111
+jevois::StdModule
+Base class for a module that supports standardized serial messages.
+Definition
+Module.H:234
+jevois::dnn::PostProcessorPythonImpl
+Definition
+PostProcessorPython.C:30
+jevois::dnn::PostProcessorPythonImpl::~PostProcessorPythonImpl
+virtual ~PostProcessorPythonImpl()
+Definition
+PostProcessorPython.C:45
+jevois::dnn::PostProcessorPythonImpl::loadpy
+void loadpy(std::string const &pypath)
+Definition
+PostProcessorPython.C:57
+jevois::dnn::PostProcessorPythonImpl::process
+void process(std::vector< cv::Mat > const &outs, PreProcessor *preproc)
+Definition
+PostProcessorPython.C:68
+jevois::dnn::PostProcessorPythonImpl::freeze
+void freeze(bool doit)
+Definition
+PostProcessorPython.C:51
+jevois::dnn::PostProcessorPythonImpl::report
+void report(jevois::StdModule *mod, jevois::RawImage *outimg=nullptr, jevois::OptGUIhelper *helper=nullptr, bool overlay=true, bool idle=false)
+Definition
+PostProcessorPython.C:79
+jevois::dnn::PostProcessorPython::itsImpl
+std::shared_ptr< PostProcessorPythonImpl > itsImpl
+Definition
+PostProcessorPython.H:60
+jevois::dnn::PostProcessorPython::~PostProcessorPython
+virtual ~PostProcessorPython()
+Destructor.
+Definition
+PostProcessorPython.C:125
+jevois::dnn::PostProcessorPython::process
+void process(std::vector< cv::Mat > const &outs, PreProcessor *preproc) override
+Process outputs and draw/send some results.
+Definition
+PostProcessorPython.C:146
+jevois::dnn::PostProcessorPython::report
+void report(jevois::StdModule *mod, jevois::RawImage *outimg=nullptr, jevois::OptGUIhelper *helper=nullptr, bool overlay=true, bool idle=false) override
+Report what happened in last process() to console/output video/GUI.
+Definition
+PostProcessorPython.C:150
+jevois::dnn::PostProcessorPython::freeze
+void freeze(bool doit) override
+Freeze/unfreeze parameters that users should not change while running.
+Definition
+PostProcessorPython.C:129
+jevois::dnn::PostProcessorPython::PostProcessorPython
+PostProcessorPython(std::string const &instance)
+Constructor.
+Definition
+PostProcessorPython.C:118
+jevois::dnn::PostProcessorPython::onParamChange
+void onParamChange(postprocessor::pypost const &param, std::string const &newval) override
+Definition
+PostProcessorPython.C:139
+jevois::dnn::PostProcessor
+Post-Processor for neural network pipeline.
+Definition
+PostProcessor.H:215
+jevois::dnn::PreProcessor
+Pre-Processor for neural network pipeline.
+Definition
+PreProcessor.H:110
+jevois::dnn::PreProcessor::getPreProcForPy
+std::shared_ptr< PreProcessorForPython > getPreProcForPy() const
+Get a pointer to our python-friendly interface.
+Definition
+PreProcessor.C:156
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+LINFO
+#define LINFO(msg)
+Convenience macro for users to print out console or syslog messages, INFO level.
+Definition
+Log.H:194
+jevois::python::pyVecToList
+boost::python::list pyVecToList(std::vector< T > const &v)
+Helper to convert std::vector<T> to python list.
+jevois::python::hasattr
+bool hasattr(boost::python::object &o, char const *name)
+Check whether a boost::python::object has an attribute.
+Definition
+PythonSupport.C:116
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+src
+jevois
+DNN
+PostProcessorPython.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+

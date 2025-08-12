@@ -1,0 +1,4051 @@
+DOCUMENTATION JEVOIS - PARTIE 13
+Catégorie principale: OTHER
+Nombre de documents: 1
+================================================================================
+
+// ####################################################################################################
+1761
+std::string jevois::Engine::camCtrlInfo(
+struct
+v4l2_queryctrl & qc, std::set<int> & doneids)
+1762
+1763
+// See if we have this control:
+1764
+itsCamera->queryControl(qc);
+1765
+qc.id &= ~V4L2_CTRL_FLAG_NEXT_CTRL;
+1766
+1767
+// If we have already done this control, just return an empty string:
+1768
+if
+(doneids.find(qc.id) != doneids.end())
+return
+std::string();
+else
+doneids.insert(qc.id);
+1769
+1770
+// Control exists, let's also get its current value:
+1771
+struct
+v4l2_control ctrl = { }; ctrl.id = qc.id;
+1772
+itsCamera->getControl(ctrl);
+1773
+1774
+// Print out some description depending on control type:
+1775
+std::ostringstream ss;
+1776
+ss << camctrlname(qc.id,
+reinterpret_cast<
+char
+const
+(qc.name));
+1777
+1778
+if
+(qc.flags & V4L2_CTRL_FLAG_DISABLED) ss <<
+" D "
+1779
+1780
+switch
+(qc.type)
+1781
+1782
+case
+V4L2_CTRL_TYPE_INTEGER:
+1783
+ss <<
+" I "
+<< qc.minimum <<
+' '
+<< qc.maximum <<
+' '
+<< qc.step
+1784
+<<
+' '
+<< qc.default_value <<
+' '
+<< ctrl.value;
+1785
+break
+1786
+1787
+//case V4L2_CTRL_TYPE_INTEGER64:
+1788
+//ss << " J " << ctrl.value64;
+1789
+//break;
+1790
+1791
+//case V4L2_CTRL_TYPE_STRING:
+1792
+//ss << " S " << qc.minimum << ' ' << qc.maximum << ' ' << qc.step << ' ' << ctrl.string;
+1793
+//break;
+1794
+1795
+case
+V4L2_CTRL_TYPE_BOOLEAN:
+1796
+ss <<
+" B "
+<< qc.default_value <<
+' '
+<< ctrl.value;
+1797
+break
+1798
+1799
+// This one is not supported by the older kernel on platform:
+1800
+//case V4L2_CTRL_TYPE_INTEGER_MENU:
+1801
+//ss << " N " << qc.minimum << ' ' << qc.maximum << ' ' << qc.default_value << ' ' << ctrl.value;
+1802
+//break;
+1803
+1804
+case
+V4L2_CTRL_TYPE_BUTTON:
+1805
+ss <<
+" U"
+1806
+break
+1807
+1808
+case
+V4L2_CTRL_TYPE_BITMASK:
+1809
+ss <<
+" K "
+<< qc.maximum <<
+' '
+<< qc.default_value <<
+' '
+<< ctrl.value;
+1810
+break
+1811
+1812
+case
+V4L2_CTRL_TYPE_MENU:
+1813
+1814
+struct
+v4l2_querymenu querymenu = { };
+1815
+querymenu.id = qc.id;
+1816
+ss <<
+" M "
+<< qc.default_value <<
+' '
+<< ctrl.value;
+1817
+for
+(querymenu.index = qc.minimum; querymenu.index <= (
+unsigned
+int)qc.maximum; ++querymenu.index)
+1818
+1819
+try
+{ itsCamera->queryMenu(querymenu); }
+catch
+(...) { strcpy((
+char
+*)(querymenu.name),
+"fixme"
+); }
+1820
+ss <<
+' '
+<< querymenu.index <<
+':'
+<< querymenu.name <<
+' '
+1821
+1822
+1823
+break
+1824
+1825
+default
+1826
+ss <<
+'X'
+1827
+1828
+1829
+return
+ss.str();
+1830
+1831
+1832
+#ifdef JEVOIS_PLATFORM_A33
+1833
+// ####################################################################################################
+1834
+void
+jevois::Engine::startMassStorageMode()
+1835
+1836
+// itsMtx must be locked by caller
+1837
+1838
+if
+(itsMassStorageMode.load()) {
+LERROR
+"Already in mass-storage mode -- IGNORED"
+);
+return
+; }
+1839
+1840
+// Nuke any module and loader so we have nothing loaded that uses /jevois:
+1841
+if
+(itsModule) { removeComponent(itsModule); itsModule.reset(); }
+1842
+if
+(itsLoader) itsLoader.reset();
+1843
+1844
+// Unmount /jevois:
+1845
+if
+(std::system(
+"sync"
+))
+LERROR
+"Disk sync failed -- IGNORED"
+);
+1846
+if
+(std::system(
+"mount -o remount,ro /jevois"
+))
+LERROR
+"Failed to remount /jevois read-only -- IGNORED"
+);
+1847
+1848
+// Now set the backing partition in mass-storage gadget:
+1849
+std::ofstream ofs(
+JEVOIS_USBSD_SYS
+);
+1850
+if
+(ofs.is_open() ==
+false
+LFATAL
+"Cannot setup mass-storage backing file to "
+<<
+JEVOIS_USBSD_SYS
+);
+1851
+ofs <<
+JEVOIS_USBSD_FILE
+<< std::endl;
+1852
+1853
+LINFO
+"Exported JEVOIS partition of microSD to host computer as virtual flash drive."
+);
+1854
+itsMassStorageMode.store(
+true
+);
+1855
+1856
+1857
+// ####################################################################################################
+1858
+void
+jevois::Engine::stopMassStorageMode()
+1859
+1860
+//itsMassStorageMode.store(false);
+1861
+LINFO
+"JeVois virtual USB drive ejected by host -- REBOOTING"
+);
+1862
+reboot();
+1863
+1864
+#endif
+1865
+1866
+// ####################################################################################################
+1867
+void
+jevois::Engine::reboot
+()
+1868
+1869
+if
+(std::system(
+"sync"
+))
+LERROR
+"Disk sync failed -- IGNORED"
+);
+1870
+if
+(std::system(
+"sync"
+))
+LERROR
+"Disk sync failed -- IGNORED"
+);
+1871
+#ifdef JEVOIS_PLATFORM_A33
+1872
+itsCheckingMassStorage.store(
+false
+);
+1873
+#endif
+1874
+itsRunning.store(
+false
+);
+1875
+1876
+#ifdef JEVOIS_PLATFORM_A33
+1877
+// Hard reset to avoid possible hanging during module unload, etc:
+1878
+if
+( ! std::ofstream(
+"/proc/sys/kernel/sysrq"
+).put(
+'1'
+))
+LERROR
+"Cannot trigger hard reset -- please unplug me!"
+);
+1879
+if
+( ! std::ofstream(
+"/proc/sysrq-trigger"
+).put(
+'s'
+))
+LERROR
+"Cannot trigger hard reset -- please unplug me!"
+);
+1880
+if
+( ! std::ofstream(
+"/proc/sysrq-trigger"
+).put(
+'b'
+))
+LERROR
+"Cannot trigger hard reset -- please unplug me!"
+);
+1881
+#endif
+1882
+1883
+this->quit();
+1884
+//std::terminate();
+1885
+1886
+1887
+// ####################################################################################################
+1888
+void
+jevois::Engine::quit
+()
+1889
+1890
+// must be locked, camera and gadget must exist:
+1891
+itsGadget->abortStream();
+1892
+itsCamera->abortStream();
+1893
+itsStreaming.store(
+false
+);
+1894
+itsGadget->streamOff();
+1895
+itsCamera->streamOff();
+1896
+itsRunning.store(
+false
+);
+1897
+1898
+//std::terminate();
+1899
+1900
+1901
+// ####################################################################################################
+1902
+void
+jevois::Engine::cmdInfo(std::shared_ptr<UserInterface> s,
+bool
+showAll, std::string
+const
+& pfx)
+1903
+1904
+s->writeString(pfx,
+"help - print this help message"
+);
+1905
+s->writeString(pfx,
+"help2 - print compact help message about current vision module only"
+);
+1906
+s->writeString(pfx,
+"info - show system information including CPU speed, load and temperature"
+);
+1907
+s->writeString(pfx,
+"setpar <name> <value> - set a parameter value"
+);
+1908
+s->writeString(pfx,
+"getpar <name> - get a parameter value(s)"
+);
+1909
+s->writeString(pfx,
+"runscript <filename> - run script commands in specified file"
+);
+1910
+s->writeString(pfx,
+"setcam <ctrl> <val> - set camera control <ctrl> to value <val>"
+);
+1911
+s->writeString(pfx,
+"getcam <ctrl> - get value of camera control <ctrl>"
+);
+1912
+1913
+if
+(showAll || camreg::get())
+1914
+1915
+s->writeString(pfx,
+"setcamreg <reg> <val> - set raw camera register <reg> to value <val>"
+);
+1916
+s->writeString(pfx,
+"getcamreg <reg> - get value of raw camera register <reg>"
+);
+1917
+s->writeString(pfx,
+"setimureg <reg> <val> - set raw IMU register <reg> to value <val>"
+);
+1918
+s->writeString(pfx,
+"getimureg <reg> - get value of raw IMU register <reg>"
+);
+1919
+s->writeString(pfx,
+"setimuregs <reg> <num> <val1> ... <valn> - set array of raw IMU register values"
+);
+1920
+s->writeString(pfx,
+"getimuregs <reg> <num> - get array of raw IMU register values"
+);
+1921
+s->writeString(pfx,
+"setdmpreg <reg> <val> - set raw DMP register <reg> to value <val>"
+);
+1922
+s->writeString(pfx,
+"getdmpreg <reg> - get value of raw DMP register <reg>"
+);
+1923
+s->writeString(pfx,
+"setdmpregs <reg> <num> <val1> ... <valn> - set array of raw DMP register values"
+);
+1924
+s->writeString(pfx,
+"getdmpregs <reg> <num> - get array of raw DMP register values"
+);
+1925
+1926
+1927
+s->writeString(pfx,
+"listmappings - list all available video mappings"
+);
+1928
+s->writeString(pfx,
+"setmapping <num> - select video mapping <num>, only possible while not streaming"
+);
+1929
+s->writeString(pfx,
+"setmapping2 <CAMmode> <CAMwidth> <CAMheight> <CAMfps> <Vendor> <Module> - set no-USB-out "
+1930
+"video mapping defined on the fly, while not streaming"
+);
+1931
+s->writeString(pfx,
+"reload - reload and reset the current module"
+);
+1932
+1933
+if
+(showAll || itsCurrentMapping.ofmt == 0 || itsManualStreamon)
+1934
+1935
+s->writeString(pfx,
+"streamon - start camera video streaming"
+);
+1936
+s->writeString(pfx,
+"streamoff - stop camera video streaming"
+);
+1937
+1938
+1939
+s->writeString(pfx,
+"ping - returns 'ALIVE'"
+);
+1940
+s->writeString(pfx,
+"serlog <string> - forward string to the serial port(s) specified by the serlog parameter"
+);
+1941
+s->writeString(pfx,
+"serout <string> - forward string to the serial port(s) specified by the serout parameter"
+);
+1942
+1943
+if
+(showAll)
+1944
+1945
+// Hide machine-oriented commands by default
+1946
+s->writeString(pfx,
+"caminfo - returns machine-readable info about camera parameters"
+);
+1947
+s->writeString(pfx,
+"cmdinfo [all] - returns machine-readable info about Engine commands"
+);
+1948
+s->writeString(pfx,
+"modcmdinfo - returns machine-readable info about Module commands"
+);
+1949
+s->writeString(pfx,
+"paraminfo [hot|mod|modhot] - returns machine-readable info about parameters"
+);
+1950
+s->writeString(pfx,
+"serinfo - returns machine-readable info about serial settings (serout serlog serstyle serprec serstamp)"
+);
+1951
+s->writeString(pfx,
+"fileget <filepath> - get a file from JeVois to the host. Use with caution!"
+);
+1952
+s->writeString(pfx,
+"fileput <filepath> - put a file from the host to JeVois. Use with caution!"
+);
+1953
+1954
+1955
+#ifdef JEVOIS_PLATFORM_A33
+1956
+s->writeString(pfx,
+"usbsd - export the JEVOIS partition of the microSD card as a virtual USB drive"
+);
+1957
+#endif
+1958
+s->writeString(pfx,
+"sync - commit any pending data write to microSD"
+);
+1959
+s->writeString(pfx,
+"date [date and time] - get or set the system date and time"
+);
+1960
+1961
+s->writeString(pfx,
+"!<string> - execute <string> as a Linux shell command. Use with caution!"
+);
+1962
+s->writeString(pfx,
+"shell <string> - execute <string> as a Linux shell command. Use with caution!"
+);
+1963
+s->writeString(pfx,
+"shellstart - execute all subsequent commands as Linux shell commands. Use with caution!"
+);
+1964
+s->writeString(pfx,
+"shellstop - stop executing all subsequent commands as Linux shell commands."
+);
+1965
+1966
+#ifdef JEVOIS_PRO
+1967
+s->writeString(pfx,
+"dnnget <key> - download and install a DNN from JeVois Model Converter"
+);
+1968
+#endif
+1969
+1970
+#ifdef JEVOIS_PLATFORM
+1971
+s->writeString(pfx,
+"restart - restart the JeVois smart camera"
+);
+1972
+#endif
+1973
+1974
+#ifndef JEVOIS_PLATFORM_A33
+1975
+s->writeString(pfx,
+"quit - quit this program"
+);
+1976
+#endif
+1977
+1978
+1979
+// ####################################################################################################
+1980
+void
+jevois::Engine::modCmdInfo(std::shared_ptr<UserInterface> s, std::string
+const
+& pfx)
+1981
+1982
+if
+(itsModule)
+1983
+1984
+std::stringstream css; itsModule->supportedCommands(css);
+1985
+for
+(std::string line; std::getline(css, line);
+/* */
+) s->writeString(pfx, line);
+1986
+1987
+1988
+1989
+// ####################################################################################################
+1990
+bool
+jevois::Engine::parseCommand
+(std::string
+const
+& str, std::shared_ptr<UserInterface> s, std::string
+const
+& pfx)
+1991
+1992
+// itsMtx should be locked by caller
+1993
+1994
+std::string errmsg;
+1995
+1996
+// If we are in shell mode, pass any command to the shell except for 'shellstop':
+1997
+if
+(itsShellMode)
+1998
+1999
+if
+(str ==
+"shellstop"
+) { itsShellMode =
+false
+return
+true
+; }
+2000
+2001
+std::string ret =
+jevois::system
+(str,
+true
+);
+2002
+std::vector<std::string> rvec =
+jevois::split
+(ret,
+"\n"
+);
+2003
+for
+(std::string
+const
+& r : rvec) s->writeString(pfx, r);
+2004
+return
+true
+2005
+2006
+2007
+// Note: ModemManager on Ubuntu sends this on startup, kill ModemManager to avoid:
+2008
+// 41 54 5e 53 51 50 4f 52 54 3f 0d 41 54 0d 41 54 0d 41 54 0d 7e 00 78 f0 7e 7e 00 78 f0 7e
+2009
+//
+2010
+// AT^SQPORT?
+2011
+// AT
+2012
+// AT
+2013
+// AT
+2014
+// ~
+2015
+//
+2016
+// then later on it insists on trying to mess with us, issuing things like AT, AT+CGMI, AT+GMI, AT+CGMM, AT+GMM,
+2017
+// AT%IPSYS?, ATE0, ATV1, etc etc
+2018
+2019
+switch
+(str.length())
+2020
+2021
+case
+0:
+2022
+LDEBUG
+"Ignoring empty string"
+);
+return
+true
+2023
+break
+2024
+2025
+case
+1:
+2026
+if
+(str[0] ==
+'~'
+) {
+LDEBUG
+"Ignoring modem config command [~]"
+);
+return
+true
+; }
+2027
+2028
+// If the string starts with "#", then just print it out on the serlog port(s). We use this to allow debug messages
+2029
+// from the arduino to be printed out to the user:
+2030
+if
+(str[0] ==
+'#'
+) { sendSerial(str,
+true
+);
+return
+true
+; }
+2031
+break
+2032
+2033
+default
+// length is 2 or more:
+2034
+2035
+// Ignore any command that starts with a '~':
+2036
+if
+(str[0] ==
+'~'
+) {
+LDEBUG
+"Ignoring modem config command ["
+<< str <<
+']'
+);
+return
+true
+; }
+2037
+2038
+// Ignore any command that starts with "AT":
+2039
+if
+(str[0] ==
+'A'
+&& str[1] ==
+'T'
+) {
+LDEBUG
+"Ignoring AT command ["
+<< str <<
+']'
+);
+return
+true
+; }
+2040
+2041
+// If the string starts with "#", then just print it out on the serlog port(s). We use this to allow debug messages
+2042
+// in the arduino to be printed out to the user:
+2043
+if
+(str[0] ==
+'#'
+) { sendSerial(str,
+true
+);
+return
+true
+; }
+2044
+2045
+// If the string starts with "!", this is like the "shell" command, but parsed differently:
+2046
+std::string cmd, rem;
+2047
+if
+(str[0] ==
+'!'
+2048
+2049
+cmd =
+"shell"
+; rem = str.substr(1);
+2050
+2051
+else
+2052
+2053
+// Get the first word, i.e., the command:
+2054
+size_t
+const
+idx = str.find(
+' '
+);
+2055
+if
+(idx == str.npos) cmd = str;
+2056
+else
+{ cmd = str.substr(0, idx);
+if
+(idx < str.length()) rem = str.substr(idx+1); }
+2057
+2058
+2059
+// ----------------------------------------------------------------------------------------------------
+2060
+if
+(cmd ==
+"help"
+2061
+2062
+// Show all commands, first ours, as supported below:
+2063
+s->writeString(pfx,
+"GENERAL COMMANDS:"
+);
+2064
+s->writeString(pfx,
+""
+);
+2065
+cmdInfo(s,
+false
+, pfx);
+2066
+s->writeString(pfx,
+""
+);
+2067
+2068
+// Then the module's custom commands, if any:
+2069
+if
+(itsModule)
+2070
+2071
+s->writeString(pfx,
+"MODULE-SPECIFIC COMMANDS:"
+);
+2072
+s->writeString(pfx,
+""
+);
+2073
+modCmdInfo(s, pfx);
+2074
+s->writeString(pfx,
+""
+);
+2075
+2076
+2077
+// Get the help message for our parameters and write it out line by line so the serial fixes the line endings:
+2078
+std::stringstream pss; constructHelpMessage(pss);
+2079
+for
+(std::string line; std::getline(pss, line);
+/* */
+) s->writeString(pfx, line);
+2080
+2081
+// Show all camera controls
+2082
+s->writeString(pfx,
+"AVAILABLE CAMERA CONTROLS:"
+);
+2083
+s->writeString(pfx,
+""
+);
+2084
+2085
+foreachCamCtrl([
+this
+,&pfx,&s](
+struct
+v4l2_queryctrl & qc, std::set<int> & doneids)
+2086
+2087
+try
+2088
+2089
+std::string hlp = camCtrlHelp(qc, doneids);
+2090
+if
+(hlp.empty() ==
+false
+) s->writeString(pfx, hlp);
+2091
+catch
+(...) { }
+// silently ignore errors, e.g., some write-only controls
+2092
+});
+2093
+return
+true
+2094
+2095
+2096
+// ----------------------------------------------------------------------------------------------------
+2097
+if
+(cmd ==
+"caminfo"
+2098
+2099
+// Machine-readable list of camera parameters:
+2100
+foreachCamCtrl([
+this
+,&pfx,&s](
+struct
+v4l2_queryctrl & qc, std::set<int> & doneids)
+2101
+2102
+try
+2103
+2104
+std::string hlp = camCtrlInfo(qc, doneids);
+2105
+if
+(hlp.empty() ==
+false
+) s->writeString(pfx, hlp);
+2106
+catch
+(...) { }
+// silently ignore errors, e.g., some write-only controls
+2107
+});
+2108
+return
+true
+2109
+2110
+2111
+// ----------------------------------------------------------------------------------------------------
+2112
+if
+(cmd ==
+"cmdinfo"
+2113
+2114
+bool
+showAll = (rem ==
+"all"
+) ?
+true
+false
+2115
+cmdInfo(s, showAll, pfx);
+2116
+return
+true
+2117
+2118
+2119
+// ----------------------------------------------------------------------------------------------------
+2120
+if
+(cmd ==
+"modcmdinfo"
+2121
+2122
+modCmdInfo(s, pfx);
+2123
+return
+true
+2124
+2125
+2126
+// ----------------------------------------------------------------------------------------------------
+2127
+if
+(cmd ==
+"paraminfo"
+2128
+2129
+std::map<std::string, std::string> categs;
+2130
+bool
+skipFrozen = (rem ==
+"hot"
+|| rem ==
+"modhot"
+) ?
+true
+false
+2131
+2132
+if
+(rem ==
+"mod"
+|| rem ==
+"modhot"
+2133
+2134
+// Report only on our module's parameter, if any:
+2135
+if
+(itsModule) itsModule->paramInfo(s, categs, skipFrozen, instanceName(), pfx);
+2136
+2137
+else
+2138
+2139
+// Report on all parameters:
+2140
+paramInfo(s, categs, skipFrozen,
+""
+, pfx);
+2141
+2142
+2143
+return
+true
+2144
+2145
+2146
+// ----------------------------------------------------------------------------------------------------
+2147
+if
+(cmd ==
+"serinfo"
+2148
+2149
+std::string info = getParamStringUnique(
+"serout"
+) +
+' '
++ getParamStringUnique(
+"serlog"
+);
+2150
+if
+auto
+mod =
+dynamic_cast<
+jevois::StdModule
+(itsModule.get()))
+2151
+info +=
+' '
++ mod->getParamStringUnique(
+"serstyle"
+) +
+' '
++ mod->getParamStringUnique(
+"serprec"
+) +
+2152
+' '
++ mod->getParamStringUnique(
+"serstamp"
+);
+2153
+else
+info +=
+" - - -"
+2154
+2155
+s->writeString(pfx, info);
+2156
+2157
+return
+true
+2158
+2159
+2160
+// ----------------------------------------------------------------------------------------------------
+2161
+if
+(cmd ==
+"help2"
+2162
+2163
+if
+(itsModule)
+2164
+2165
+// Start with the module's commands:
+2166
+std::stringstream css; itsModule->supportedCommands(css);
+2167
+s->writeString(pfx,
+"MODULE-SPECIFIC COMMANDS:"
+);
+2168
+s->writeString(pfx,
+""
+);
+2169
+for
+(std::string line; std::getline(css, line);
+/* */
+) s->writeString(pfx, line);
+2170
+s->writeString(pfx,
+""
+);
+2171
+2172
+// Now the parameters for that module (and its subs) only:
+2173
+s->writeString(pfx,
+"MODULE PARAMETERS:"
+);
+2174
+s->writeString(pfx,
+""
+);
+2175
+2176
+// Keep this in sync with Manager::constructHelpMessage():
+2177
+std::unordered_map<std::string,
+// category:description
+2178
+std::unordered_map<std::string,
+// --name (type) default=[def]
+2179
+std::vector<std::pair<std::string,
+// component name
+2180
+std::string
+// current param value
+2181
+> > > > helplist;
+2182
+itsModule->populateHelpMessage(
+""
+, helplist);
+2183
+2184
+if
+(helplist.empty())
+2185
+s->writeString(pfx,
+"None."
+);
+2186
+else
+2187
+2188
+for
+auto
+const
+& c : helplist)
+2189
+2190
+// Print out the category name and description
+2191
+s->writeString(pfx, c.first);
+2192
+2193
+// Print out the parameter details
+2194
+for
+auto
+const
+& n : c.second)
+2195
+2196
+std::vector<std::string> tok =
+jevois::split
+(n.first,
+"[\\r\\n]+"
+);
+2197
+bool
+first =
+true
+2198
+for
+auto
+const
+& t : tok)
+2199
+2200
+// Add current value info to the first thing we write (which is name, default, etc)
+2201
+if
+(first)
+2202
+2203
+auto
+const
+& v = n.second;
+2204
+if
+(v.size() == 1)
+// only one component using this param
+2205
+2206
+if
+(v[0].second.empty())
+2207
+s->writeString(pfx, t);
+// only one comp, and using default val
+2208
+else
+2209
+s->writeString(pfx, t +
+" current=["
++ v[0].second +
+']'
+);
+// using non-default val
+2210
+2211
+else
+if
+(v.size() > 1)
+// several components using this param with possibly different values
+2212
+2213
+std::string sss = t +
+" current="
+2214
+for
+auto
+const
+& pp : v)
+2215
+if
+(pp.second.empty() ==
+false
+) sss +=
+'['
++ pp.first +
+':'
++ pp.second +
+"] "
+2216
+s->writeString(pfx, sss);
+2217
+2218
+else
+s->writeString(pfx, t);
+// no non-default value(s) to report
+2219
+2220
+first =
+false
+2221
+2222
+2223
+else
+// just write out the other lines (param description)
+2224
+s->writeString(pfx, t);
+2225
+2226
+2227
+s->writeString(pfx,
+""
+);
+2228
+2229
+2230
+2231
+else
+2232
+s->writeString(pfx,
+"No module loaded."
+);
+2233
+2234
+return
+true
+2235
+2236
+2237
+// ----------------------------------------------------------------------------------------------------
+2238
+if
+(cmd ==
+"info"
+2239
+2240
+s->writeString(pfx,
+"INFO: JeVois "
+JEVOIS_VERSION_STRING
+);
+2241
+s->writeString(pfx,
+"INFO: "
+jevois::getSysInfoVersion
+());
+2242
+s->writeString(pfx,
+"INFO: "
+jevois::getSysInfoCPU
+());
+2243
+s->writeString(pfx,
+"INFO: "
+jevois::getSysInfoMem
+());
+2244
+if
+(itsModule) s->writeString(pfx,
+"INFO: "
++ itsCurrentMapping.str());
+2245
+else
+s->writeString(pfx,
+"INFO: "
+jevois::VideoMapping
+().str());
+2246
+return
+true
+2247
+2248
+2249
+// ----------------------------------------------------------------------------------------------------
+2250
+if
+(cmd ==
+"setpar"
+2251
+2252
+size_t
+const
+remidx = rem.find(
+' '
+);
+2253
+if
+(remidx != rem.npos)
+2254
+2255
+std::string
+const
+desc = rem.substr(0, remidx);
+2256
+if
+(remidx < rem.length())
+2257
+2258
+std::string
+const
+val = rem.substr(remidx+1);
+2259
+setParamString(desc, val);
+2260
+return
+true
+2261
+2262
+2263
+errmsg =
+"Need to provide a parameter name and a parameter value in setpar"
+2264
+2265
+2266
+// ----------------------------------------------------------------------------------------------------
+2267
+if
+(cmd ==
+"getpar"
+2268
+2269
+auto
+vec = getParamString(rem);
+2270
+for
+auto
+const
+& p : vec) s->writeString(pfx, p.first +
+' '
++ p.second);
+2271
+return
+true
+2272
+2273
+2274
+// ----------------------------------------------------------------------------------------------------
+2275
+if
+(cmd ==
+"setcam"
+2276
+2277
+std::istringstream ss(rem); std::string ctrl;
+int
+val; ss >> ctrl >> val;
+2278
+struct
+v4l2_control c = { }; c.id = camctrlid(ctrl); c.value = val;
+2279
+2280
+// For ispsensorpreset, need first to set it to non-zero before we set it to zero, otherwise ignored...
+2281
+if
+(val == 0 && ctrl ==
+"ispsensorpreset"
+2282
+2283
+c.value = 1; itsCamera->setControl(c);
+2284
+c.value = 0; itsCamera->setControl(c);
+2285
+2286
+else
+itsCamera->setControl(c);
+2287
+2288
+return
+true
+2289
+2290
+2291
+// ----------------------------------------------------------------------------------------------------
+2292
+if
+(cmd ==
+"getcam"
+2293
+2294
+struct
+v4l2_control c = { }; c.id = camctrlid(rem);
+2295
+itsCamera->getControl(c);
+2296
+s->writeString(pfx, rem +
+' '
++ std::to_string(c.value));
+2297
+return
+true
+2298
+2299
+2300
+// ----------------------------------------------------------------------------------------------------
+2301
+if
+(cmd ==
+"setcamreg"
+2302
+2303
+if
+(camreg::get())
+2304
+2305
+auto
+cam = std::dynamic_pointer_cast<jevois::Camera>(itsCamera);
+2306
+if
+(cam)
+2307
+2308
+// Read register and value as strings, then std::stoi to int, supports 0x (and 0 for octal, caution)
+2309
+std::istringstream ss(rem); std::string reg, val; ss >> reg >> val;
+2310
+cam->writeRegister(std::stoi(reg,
+nullptr
+, 0), std::stoi(val,
+nullptr
+, 0));
+2311
+return
+true
+2312
+2313
+else
+errmsg =
+"Not using a camera for video input"
+2314
+2315
+else
+errmsg =
+"Access to camera registers is disabled, enable with: setpar camreg true"
+2316
+2317
+2318
+// ----------------------------------------------------------------------------------------------------
+2319
+if
+(cmd ==
+"getcamreg"
+2320
+2321
+if
+(camreg::get())
+2322
+2323
+auto
+cam = std::dynamic_pointer_cast<jevois::Camera>(itsCamera);
+2324
+if
+(cam)
+2325
+2326
+unsigned
+int
+val = cam->readRegister(std::stoi(rem,
+nullptr
+, 0));
+2327
+std::ostringstream os; os << std::hex << val;
+2328
+s->writeString(pfx, os.str());
+2329
+return
+true
+2330
+2331
+else
+errmsg =
+"Not using a camera for video input"
+2332
+2333
+else
+errmsg =
+"Access to camera registers is disabled, enable with: setpar camreg true"
+2334
+2335
+2336
+// ----------------------------------------------------------------------------------------------------
+2337
+if
+(cmd ==
+"setimureg"
+2338
+2339
+if
+(imureg::get())
+2340
+2341
+if
+(itsIMU)
+2342
+2343
+// Read register and value as strings, then std::stoi to int, supports 0x (and 0 for octal, caution)
+2344
+std::istringstream ss(rem); std::string reg, val; ss >> reg >> val;
+2345
+itsIMU->writeRegister(std::stoi(reg,
+nullptr
+, 0), std::stoi(val,
+nullptr
+, 0));
+2346
+return
+true
+2347
+2348
+else
+errmsg =
+"No IMU driver loaded"
+2349
+2350
+else
+errmsg =
+"Access to IMU registers is disabled, enable with: setpar imureg true"
+2351
+2352
+2353
+// ----------------------------------------------------------------------------------------------------
+2354
+if
+(cmd ==
+"getimureg"
+2355
+2356
+if
+(imureg::get())
+2357
+2358
+if
+(itsIMU)
+2359
+2360
+unsigned
+int
+val = itsIMU->readRegister(std::stoi(rem,
+nullptr
+, 0));
+2361
+std::ostringstream os; os << std::hex << val;
+2362
+s->writeString(pfx, os.str());
+2363
+return
+true
+2364
+2365
+else
+errmsg =
+"No IMU driver loaded"
+2366
+2367
+else
+errmsg =
+"Access to IMU registers is disabled, enable with: setpar imureg true"
+2368
+2369
+2370
+// ----------------------------------------------------------------------------------------------------
+2371
+if
+(cmd ==
+"setimuregs"
+2372
+2373
+if
+(imureg::get())
+2374
+2375
+if
+(itsIMU)
+2376
+2377
+// Read register and value as strings, then std::stoi to int, supports 0x (and 0 for octal, caution)
+2378
+std::vector<std::string> v =
+jevois::split
+(rem);
+2379
+if
+(v.size() < 3) errmsg =
+"Malformed arguments, need at least 3"
+2380
+else
+2381
+2382
+unsigned
+short
+reg = std::stoi(v[0],
+nullptr
+, 0);
+2383
+size_t
+num = std::stoi(v[1],
+nullptr
+, 0);
+2384
+if
+(num > 32) errmsg =
+"Maximum transfer size is 32 bytes"
+2385
+else
+if
+(num != v.size() - 2) errmsg =
+"Incorrect number of data bytes, should pass "
++ v[1] +
+" values."
+2386
+else
+2387
+2388
+unsigned
+char
+data[32];
+2389
+for
+size_t
+i = 2; i < v.size(); ++i) data[i-2] = std::stoi(v[i],
+nullptr
+, 0) & 0xff;
+2390
+2391
+itsIMU->writeRegisterArray(reg, data, num);
+2392
+return
+true
+2393
+2394
+2395
+2396
+else
+errmsg =
+"No IMU driver loaded"
+2397
+2398
+else
+errmsg =
+"Access to IMU registers is disabled, enable with: setpar imureg true"
+2399
+2400
+2401
+// ----------------------------------------------------------------------------------------------------
+2402
+if
+(cmd ==
+"getimuregs"
+2403
+2404
+if
+(imureg::get())
+2405
+2406
+if
+(itsIMU)
+2407
+2408
+std::istringstream ss(rem); std::string reg, num; ss >> reg >> num;
+2409
+int
+n = std::stoi(num,
+nullptr
+, 0);
+2410
+2411
+if
+(n > 32) errmsg =
+"Maximum transfer size is 32 bytes"
+2412
+else
+2413
+2414
+unsigned
+char
+data[32];
+2415
+itsIMU->readRegisterArray(std::stoi(reg,
+nullptr
+, 0), data, n);
+2416
+2417
+std::ostringstream os; os << std::hex;
+2418
+for
+int
+i = 0; i < n; ++i) os << (
+unsigned
+int
+)(data[i]) <<
+' '
+2419
+s->writeString(pfx, os.str());
+2420
+return
+true
+2421
+2422
+2423
+else
+errmsg =
+"No IMU driver loaded"
+2424
+2425
+else
+errmsg =
+"Access to IMU registers is disabled, enable with: setpar imureg true"
+2426
+2427
+2428
+// ----------------------------------------------------------------------------------------------------
+2429
+if
+(cmd ==
+"setdmpreg"
+2430
+2431
+if
+(imureg::get())
+2432
+2433
+if
+(itsIMU)
+2434
+2435
+// Read register and value as strings, then std::stoi to int, supports 0x (and 0 for octal, caution)
+2436
+std::istringstream ss(rem); std::string reg, val; ss >> reg >> val;
+2437
+itsIMU->writeDMPregister(std::stoi(reg,
+nullptr
+, 0), std::stoi(val,
+nullptr
+, 0));
+2438
+return
+true
+2439
+2440
+else
+errmsg =
+"No IMU driver loaded"
+2441
+2442
+else
+errmsg =
+"Access to IMU registers is disabled, enable with: setpar imureg true"
+2443
+2444
+2445
+// ----------------------------------------------------------------------------------------------------
+2446
+if
+(cmd ==
+"getdmpreg"
+2447
+2448
+if
+(camreg::get())
+2449
+2450
+if
+(itsIMU)
+2451
+2452
+unsigned
+int
+val = itsIMU->readDMPregister(std::stoi(rem,
+nullptr
+, 0));
+2453
+std::ostringstream os; os << std::hex << val;
+2454
+s->writeString(pfx, os.str());
+2455
+return
+true
+2456
+2457
+else
+errmsg =
+"No IMU driver loaded"
+2458
+2459
+else
+errmsg =
+"Access to IMU registers is disabled, enable with: setpar imureg true"
+2460
+2461
+2462
+// ----------------------------------------------------------------------------------------------------
+2463
+if
+(cmd ==
+"setdmpregs"
+2464
+2465
+if
+(camreg::get())
+2466
+2467
+if
+(itsIMU)
+2468
+2469
+// Read register and value as strings, then std::stoi to int, supports 0x (and 0 for octal, caution)
+2470
+std::vector<std::string> v =
+jevois::split
+(rem);
+2471
+if
+(v.size() < 3) errmsg =
+"Malformed arguments, need at least 3"
+2472
+else
+2473
+2474
+unsigned
+short
+reg = std::stoi(v[0],
+nullptr
+, 0);
+2475
+size_t
+num = std::stoi(v[1],
+nullptr
+, 0);
+2476
+if
+(num > 32) errmsg =
+"Maximum transfer size is 32 bytes"
+2477
+else
+if
+(num != v.size() - 2) errmsg =
+"Incorrect number of data bytes, should pass "
++ v[1] +
+" values."
+2478
+else
+2479
+2480
+unsigned
+char
+data[32];
+2481
+for
+size_t
+i = 2; i < v.size(); ++i) data[i-2] = std::stoi(v[i],
+nullptr
+, 0) & 0xff;
+2482
+2483
+itsIMU->writeDMPregisterArray(reg, data, num);
+2484
+return
+true
+2485
+2486
+2487
+2488
+else
+errmsg =
+"No IMU driver loaded"
+2489
+2490
+else
+errmsg =
+"Access to IMU registers is disabled, enable with: setpar imureg true"
+2491
+2492
+2493
+// ----------------------------------------------------------------------------------------------------
+2494
+if
+(cmd ==
+"getdmpregs"
+2495
+2496
+if
+(imureg::get())
+2497
+2498
+if
+(itsIMU)
+2499
+2500
+std::istringstream ss(rem); std::string reg, num; ss >> reg >> num;
+2501
+int
+n = std::stoi(num,
+nullptr
+, 0);
+2502
+2503
+if
+(n > 32) errmsg =
+"Maximum transfer size is 32 bytes"
+2504
+else
+2505
+2506
+unsigned
+char
+data[32];
+2507
+itsIMU->readDMPregisterArray(std::stoi(reg,
+nullptr
+, 0), data, n);
+2508
+2509
+std::ostringstream os; os << std::hex;
+2510
+for
+int
+i = 0; i < n; ++i) os << (
+unsigned
+int
+)(data[i]) <<
+' '
+2511
+s->writeString(pfx, os.str());
+2512
+return
+true
+2513
+2514
+2515
+else
+errmsg =
+"No IMU driver loaded"
+2516
+2517
+else
+errmsg =
+"Access to IMU registers is disabled, enable with: setpar imureg true"
+2518
+2519
+2520
+// ----------------------------------------------------------------------------------------------------
+2521
+if
+(cmd ==
+"listmappings"
+2522
+2523
+s->writeString(pfx,
+"AVAILABLE VIDEO MAPPINGS:"
+);
+2524
+s->writeString(pfx,
+""
+);
+2525
+for
+size_t
+idx = 0; idx < itsMappings.size(); ++idx)
+2526
+2527
+std::string idxstr = std::to_string(idx);
+2528
+if
+(idxstr.length() < 5) idxstr = std::string(5 - idxstr.length(),
+' '
+) + idxstr;
+// pad to 5-char long
+2529
+s->writeString(pfx, idxstr +
+" - "
++ itsMappings[idx].str());
+2530
+2531
+return
+true
+2532
+2533
+2534
+// ----------------------------------------------------------------------------------------------------
+2535
+if
+(cmd ==
+"setmapping"
+2536
+2537
+size_t
+const
+idx = std::stoi(rem);
+2538
+2539
+if
+(itsStreaming.load() && itsCurrentMapping.ofmt)
+2540
+errmsg =
+"Cannot set mapping while streaming: Stop your webcam program on the host computer first."
+2541
+else
+if
+(idx >= itsMappings.size())
+2542
+errmsg =
+"Requested mapping index "
++ std::to_string(idx) +
+" out of range [0 .. "
+2543
+std::to_string(itsMappings.size()-1) +
+']'
+2544
+else
+2545
+2546
+try
+2547
+2548
+setFormatInternal(idx);
+2549
+return
+true
+2550
+2551
+catch
+(std::exception
+const
+& e) { errmsg =
+"Error parsing or setting mapping ["
++ rem +
+"]: "
++ e.what(); }
+2552
+catch
+(...) { errmsg =
+"Error parsing or setting mapping ["
++ rem +
+']'
+; }
+2553
+2554
+2555
+2556
+// ----------------------------------------------------------------------------------------------------
+2557
+if
+(cmd ==
+"setmapping2"
+2558
+2559
+if
+(itsStreaming.load() && itsCurrentMapping.ofmt)
+2560
+errmsg =
+"Cannot set mapping while streaming: Stop your webcam program on the host computer first."
+2561
+else
+2562
+2563
+try
+2564
+2565
+jevois::VideoMapping
+m; std::istringstream full(
+"NONE 0 0 0.0 "
++ rem); full >> m;
+2566
+setFormatInternal(m);
+2567
+return
+true
+2568
+2569
+catch
+(std::exception
+const
+& e) { errmsg =
+"Error parsing or setting mapping ["
++ rem +
+"]: "
++ e.what(); }
+2570
+catch
+(...) { errmsg =
+"Error parsing or setting mapping ["
++ rem +
+']'
+; }
+2571
+2572
+2573
+2574
+// ----------------------------------------------------------------------------------------------------
+2575
+if
+(cmd ==
+"reload"
+2576
+2577
+setFormatInternal(itsCurrentMapping,
+true
+);
+2578
+return
+true
+2579
+2580
+2581
+// ----------------------------------------------------------------------------------------------------
+2582
+if
+(itsCurrentMapping.ofmt == 0 || itsCurrentMapping.ofmt ==
+JEVOISPRO_FMT_GUI
+|| itsManualStreamon)
+2583
+2584
+if
+(cmd ==
+"streamon"
+2585
+2586
+// keep this in sync with streamOn(), modulo the fact that here we are already locked:
+2587
+itsCamera->streamOn();
+2588
+itsGadget->streamOn();
+2589
+itsStreaming.store(
+true
+);
+2590
+return
+true
+2591
+2592
+2593
+if
+(cmd ==
+"streamoff"
+2594
+2595
+// keep this in sync with streamOff(), modulo the fact that here we are already locked:
+2596
+itsGadget->abortStream();
+2597
+itsCamera->abortStream();
+2598
+2599
+itsStreaming.store(
+false
+);
+2600
+2601
+itsGadget->streamOff();
+2602
+itsCamera->streamOff();
+2603
+return
+true
+2604
+2605
+2606
+2607
+// ----------------------------------------------------------------------------------------------------
+2608
+if
+(cmd ==
+"ping"
+2609
+2610
+s->writeString(pfx,
+"ALIVE"
+);
+2611
+return
+true
+2612
+2613
+2614
+// ----------------------------------------------------------------------------------------------------
+2615
+if
+(cmd ==
+"serlog"
+2616
+2617
+sendSerial(rem,
+true
+);
+2618
+return
+true
+2619
+2620
+2621
+// ----------------------------------------------------------------------------------------------------
+2622
+if
+(cmd ==
+"serout"
+2623
+2624
+sendSerial(rem,
+false
+);
+2625
+return
+true
+2626
+2627
+2628
+// ----------------------------------------------------------------------------------------------------
+2629
+#ifdef JEVOIS_PLATFORM_A33
+2630
+if
+(cmd ==
+"usbsd"
+2631
+2632
+if
+(itsStreaming.load())
+2633
+2634
+errmsg =
+"Cannot export microSD over USB while streaming: "
+2635
+if
+(itsCurrentMapping.ofmt) errmsg +=
+"Stop your webcam program on the host computer first."
+2636
+else
+errmsg +=
+"Issue a 'streamoff' command first."
+2637
+2638
+else
+2639
+2640
+startMassStorageMode();
+2641
+return
+true
+2642
+2643
+2644
+#endif
+2645
+2646
+// ----------------------------------------------------------------------------------------------------
+2647
+if
+(cmd ==
+"sync"
+2648
+2649
+if
+(std::system(
+"sync"
+)) errmsg =
+"Disk sync failed"
+2650
+else
+return
+true
+2651
+2652
+2653
+// ----------------------------------------------------------------------------------------------------
+2654
+if
+(cmd ==
+"date"
+2655
+2656
+std::string dat =
+jevois::system
+"/bin/date "
++ rem);
+2657
+s->writeString(pfx,
+"date now "
++ dat.substr(0, dat.size()-1));
+// skip trailing newline
+2658
+return
+true
+2659
+2660
+2661
+// ----------------------------------------------------------------------------------------------------
+2662
+if
+(cmd ==
+"runscript"
+2663
+2664
+std::string
+const
+fname = itsModule ? itsModule->absolutePath(rem).string() : rem;
+2665
+2666
+try
+{ runScriptFromFile(fname, s,
+true
+);
+return
+true
+; }
+2667
+catch
+(...) { errmsg =
+"Script "
++ fname +
+" execution failed"
+; }
+2668
+2669
+2670
+// ----------------------------------------------------------------------------------------------------
+2671
+if
+(cmd ==
+"shell"
+2672
+2673
+std::string ret =
+jevois::system
+(rem,
+true
+);
+2674
+std::vector<std::string> rvec =
+jevois::split
+(ret,
+"\n"
+);
+2675
+for
+(std::string
+const
+& r : rvec) s->writeString(pfx, r);
+2676
+return
+true
+2677
+2678
+2679
+// ----------------------------------------------------------------------------------------------------
+2680
+if
+(cmd ==
+"shellstart"
+2681
+2682
+itsShellMode =
+true
+2683
+return
+true
+2684
+// note: shellstop is handled above
+2685
+2686
+2687
+#ifdef JEVOIS_PRO
+2688
+// ----------------------------------------------------------------------------------------------------
+2689
+if
+(cmd ==
+"dnnget"
+2690
+2691
+if
+(rem.length() != 4 || std::regex_match(rem, std::regex(
+"^[a-zA-Z0-9]+$"
+)) ==
+false
+2692
+errmsg =
+"Key must be a 4-character alphanumeric string, as emailed to you by the model converter."
+2693
+else
+2694
+2695
+// Download the zip using curl:
+2696
+s->writeString(pfx,
+"Downloading custom DNN model "
++ rem +
+" ..."
+);
+2697
+std::string
+const
+zip = rem +
+".zip"
+2698
+std::string ret =
+jevois::system
+"/usr/bin/curl "
+JEVOIS_CUSTOM_DNN_URL
+"/"
++ zip +
+" -o "
+2699
+JEVOIS_CUSTOM_DNN_PATH
+"/"
++ zip,
+true
+);
+2700
+std::vector<std::string> rvec =
+jevois::split
+(ret,
+"\n"
+);
+2701
+for
+(std::string
+const
+& r : rvec) s->writeString(pfx, r);
+2702
+2703
+// Check that the file exists:
+2704
+std::ifstream ifs(
+JEVOIS_CUSTOM_DNN_PATH
+"/"
++ zip);
+2705
+if
+(ifs.is_open() ==
+false
+2706
+errmsg =
+"Failed to download. Check network connectivity and available disk space."
+2707
+else
+2708
+2709
+// Unzip it:
+2710
+s->writeString(pfx,
+"Unpacking custom DNN model "
++ rem +
+" ..."
+);
+2711
+ret =
+jevois::system
+"/usr/bin/unzip -o "
+JEVOIS_CUSTOM_DNN_PATH
+"/"
++ zip +
+2712
+" -d "
+JEVOIS_CUSTOM_DNN_PATH
+true
+);
+2713
+rvec =
+jevois::split
+(ret,
+"\n"
+);
+for
+(std::string
+const
+& r : rvec) s->writeString(pfx, r);
+2714
+2715
+ret =
+jevois::system
+"/bin/rm "
+JEVOIS_CUSTOM_DNN_PATH
+"/"
++ zip,
+true
+);
+2716
+rvec =
+jevois::split
+(ret,
+"\n"
+);
+for
+(std::string
+const
+& r : rvec) s->writeString(pfx, r);
+2717
+2718
+s->writeString(pfx,
+"Reload your model zoo for changes to take effect."
+);
+2719
+2720
+return
+true
+2721
+2722
+2723
+2724
+#endif
+2725
+2726
+// ----------------------------------------------------------------------------------------------------
+2727
+if
+(cmd ==
+"fileget"
+2728
+2729
+std::shared_ptr<jevois::Serial> ser = std::dynamic_pointer_cast<jevois::Serial>(s);
+2730
+if
+(!ser)
+2731
+errmsg =
+"File transfer only supported over USB or Hard serial ports"
+2732
+else
+2733
+2734
+std::string
+const
+abspath = itsModule ? itsModule->absolutePath(rem).string() : rem;
+2735
+ser->fileGet(abspath);
+2736
+return
+true
+2737
+2738
+2739
+2740
+// ----------------------------------------------------------------------------------------------------
+2741
+if
+(cmd ==
+"fileput"
+2742
+2743
+std::shared_ptr<jevois::Serial> ser = std::dynamic_pointer_cast<jevois::Serial>(s);
+2744
+if
+(!ser)
+2745
+errmsg =
+"File transfer only supported over USB or Hard serial ports"
+2746
+else
+2747
+2748
+std::string
+const
+abspath = itsModule ? itsModule->absolutePath(rem).string() : rem;
+2749
+ser->filePut(abspath);
+2750
+if
+(std::system(
+"sync"
+)) { }
+// quietly ignore any errors on sync
+2751
+return
+true
+2752
+2753
+2754
+2755
+#ifdef JEVOIS_PLATFORM
+2756
+// ----------------------------------------------------------------------------------------------------
+2757
+if
+(cmd ==
+"restart"
+2758
+2759
+s->writeString(pfx,
+"Restart command received - bye-bye!"
+);
+2760
+2761
+if
+(itsStreaming.load())
+2762
+s->writeString(pfx,
+"ERR Video streaming is on - you should quit your video viewer before rebooting"
+);
+2763
+2764
+if
+(std::system(
+"sync"
+)) s->writeString(pfx,
+"ERR Disk sync failed -- IGNORED"
+);
+2765
+2766
+#ifdef JEVOIS_PLATFORM_A33
+2767
+// Turn off the SD storage if it is there:
+2768
+std::ofstream(
+JEVOIS_USBSD_SYS
+).put(
+'\n'
+);
+// ignore errors
+2769
+2770
+if
+(std::system(
+"sync"
+)) s->writeString(pfx,
+"ERR Disk sync failed -- IGNORED"
+);
+2771
+#endif
+2772
+2773
+// Hard reboot:
+2774
+this->reboot();
+2775
+return
+true
+2776
+2777
+// ----------------------------------------------------------------------------------------------------
+2778
+#endif
+2779
+2780
+#ifndef JEVOIS_PLATFORM_A33
+2781
+// ----------------------------------------------------------------------------------------------------
+2782
+if
+(cmd ==
+"quit"
+2783
+2784
+s->writeString(pfx,
+"Quit command received - bye-bye!"
+);
+2785
+this->quit();
+2786
+return
+true
+2787
+2788
+// ----------------------------------------------------------------------------------------------------
+2789
+#endif
+2790
+2791
+2792
+// If we make it here, we did not parse the command. If we have an error message, that means we had started parsing
+2793
+// the command but it was buggy, so let's throw. Otherwise, we just return false to indicate that we did not parse
+2794
+// this command and maybe it is for the Module:
+2795
+if
+(errmsg.size())
+throw
+std::runtime_error(
+"Command error ["
++ str +
+"]: "
++ errmsg);
+2796
+return
+false
+2797
+2798
+2799
+// ####################################################################################################
+2800
+void
+jevois::Engine::runScriptFromFile
+(std::string
+const
+& filename, std::shared_ptr<jevois::UserInterface> ser,
+2801
+bool
+throw_no_file)
+2802
+2803
+// itsMtx should be locked by caller
+2804
+2805
+// Try to find the file:
+2806
+std::ifstream ifs(filename);
+2807
+if
+(!ifs) {
+if
+(throw_no_file)
+LFATAL
+"Could not open file "
+<< filename);
+else
+return
+; }
+2808
+2809
+// We need to identify a serial to send any errors to, if none was given to us. Let's use the GUI console, or the
+2810
+// serial in serlog, or, if none is specified there, the first available serial:
+2811
+if
+(!ser)
+2812
+2813
+if
+(itsSerials.empty())
+LFATAL
+"Need at least one active serial to run script"
+);
+2814
+2815
+switch
+(serlog::get())
+2816
+2817
+case
+jevois::engine::SerPort::Hard:
+2818
+for
+auto
+& s : itsSerials)
+if
+(s->type() ==
+jevois::UserInterface::Type::Hard
+) { ser = s;
+break
+; }
+2819
+break
+2820
+2821
+case
+jevois::engine::SerPort::USB:
+2822
+for
+auto
+& s : itsSerials)
+if
+(s->type() ==
+jevois::UserInterface::Type::USB
+) { ser = s;
+break
+; }
+2823
+break
+2824
+2825
+default
+break
+2826
+2827
+2828
+#ifdef JEVOIS_PRO
+2829
+if
+(itsGUIhelper)
+2830
+for
+auto
+& s : itsSerials)
+if
+(s->type() ==
+jevois::UserInterface::Type::GUI
+) { ser = s;
+break
+; }
+2831
+#endif
+2832
+2833
+if
+(!ser) ser = itsSerials.front();
+2834
+2835
+2836
+// Ok, run the script, plowing through any errors:
+2837
+size_t
+linenum = 0;
+2838
+for
+(std::string line; std::getline(ifs, line);
+/* */
+2839
+2840
+++linenum;
+2841
+2842
+// Strip any extra whitespace at end, which could be a CR if the file was edited in Windows:
+2843
+line =
+jevois::strip
+(line);
+2844
+2845
+// Skip comments and empty lines:
+2846
+if
+(line.length() == 0 || line[0] ==
+'#'
+continue
+2847
+2848
+// Go and parse that line:
+2849
+try
+2850
+2851
+bool
+parsed =
+false
+2852
+try
+{ parsed = parseCommand(line, ser); }
+2853
+catch
+(std::exception
+const
+& e)
+2854
+{ ser->writeString(
+"ERR "
++ filename +
+':'
++ std::to_string(linenum) +
+": "
++ e.what()); }
+2855
+catch
+(...)
+2856
+{ ser->writeString(
+"ERR "
++ filename +
+':'
++ std::to_string(linenum) +
+": Bogus command ["
++line+
+"] ignored"
+); }
+2857
+2858
+if
+(parsed ==
+false
+2859
+2860
+if
+(itsModule)
+2861
+2862
+try
+{ itsModule->parseSerial(line, ser); }
+2863
+catch
+(std::exception
+const
+& me)
+2864
+{ ser->writeString(
+"ERR "
++ filename +
+':'
++ std::to_string(linenum) +
+": "
++ me.what()); }
+2865
+catch
+(...)
+2866
+{ ser->writeString(
+"ERR "
++ filename +
+':'
++ std::to_string(linenum)+
+": Bogus command ["
++line+
+"] ignored"
+); }
+2867
+2868
+else
+ser->writeString(
+"ERR Unsupported command ["
++ line +
+"] and no module"
+);
+2869
+2870
+2871
+catch
+(...) {
+jevois::warnAndIgnoreException
+(); }
+2872
+2873
+2874
+2875
+// ####################################################################################################
+2876
+#ifdef JEVOIS_PRO
+2877
+// ####################################################################################################
+2878
+void
+jevois::Engine::drawCameraGUI
+()
+2879
+2880
+ImGui::Columns(2,
+"camctrl"
+);
+2881
+2882
+foreachCamCtrl([
+this
+](
+struct
+v4l2_queryctrl & qc, std::set<int> & doneids)
+2883
+2884
+try
+{ camCtrlGUI(qc, doneids); }
+catch
+(...) { }
+2885
+});
+2886
+2887
+ImGui::Columns(1);
+2888
+2889
+2890
+// ####################################################################################################
+2891
+void
+jevois::Engine::camCtrlGUI(
+struct
+v4l2_queryctrl & qc, std::set<int> & doneids)
+2892
+2893
+// See if we have this control:
+2894
+itsCamera->queryControl(qc);
+2895
+qc.id &= ~V4L2_CTRL_FLAG_NEXT_CTRL;
+2896
+2897
+// If we have already done this control, just return:
+2898
+if
+(doneids.find(qc.id) != doneids.end())
+return
+else
+doneids.insert(qc.id);
+2899
+2900
+// Control exists, let's also get its current value:
+2901
+struct
+v4l2_control ctrl = { }; ctrl.id = qc.id;
+2902
+itsCamera->getControl(ctrl);
+2903
+2904
+// Instantiate widgets depending on control type:
+2905
+ImGui::AlignTextToFramePadding();
+2906
+ImGui::TextUnformatted(
+reinterpret_cast<
+char
+const
+(qc.name));
+2907
+ImGui::NextColumn();
+2908
+2909
+// Grey out the item if it is disabled:
+2910
+if
+(qc.flags & V4L2_CTRL_FLAG_DISABLED)
+2911
+2912
+ImGui::PushItemFlag(ImGuiItemFlags_Disabled,
+true
+);
+2913
+ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
+2914
+2915
+2916
+// We need a unique ID for each ImGui widget, and we will use no visible widget name:
+2917
+static
+char
+wname[16]; snprintf(wname, 16,
+"##c%d"
+, ctrl.id);
+2918
+bool
+reset =
+false
+// will set to true if we want a reset button
+2919
+2920
+switch
+(qc.type)
+2921
+2922
+case
+V4L2_CTRL_TYPE_INTEGER:
+2923
+case
+V4L2_CTRL_TYPE_INTEGER_MENU:
+2924
+2925
+// Do a slider if range is reasonable, otherwise typein:
+2926
+long
+range = long(qc.maximum) - long(qc.minimum);
+2927
+if
+(range > 1 && range < 5000)
+2928
+2929
+if
+(ImGui::SliderInt(wname, &ctrl.value, qc.minimum, qc.maximum)) itsCamera->setControl(ctrl);
+2930
+reset =
+true
+2931
+2932
+else
+2933
+2934
+if
+(ImGui::InputInt(wname, &ctrl.value, qc.step, qc.step * 2)) itsCamera->setControl(ctrl);
+2935
+reset =
+true
+2936
+2937
+2938
+break
+2939
+2940
+//case V4L2_CTRL_TYPE_INTEGER64:
+2941
+//{
+2942
+//  double val = ctrl.value64;
+2943
+//  if (ImGui::InputDouble(wname, &val)) { ctrl.value64 = long(val + 0.4999); itsCamera->setControl(ctrl); }
+2944
+//}
+2945
+//break;
+2946
+2947
+//case V4L2_CTRL_TYPE_STRING:
+2948
+//  if (ImGui::InputText(wname, ctrl.string, sizeof(ctrl.string))) itsCamera->setControl(ctrl);
+2949
+//  break;
+2950
+2951
+case
+V4L2_CTRL_TYPE_BOOLEAN:
+2952
+2953
+bool
+checked = (ctrl.value != 0);
+2954
+if
+(ImGui::Checkbox(wname, &checked)) { ctrl.value = checked ? 1 : 0; itsCamera->setControl(ctrl); }
+2955
+2956
+break
+2957
+2958
+2959
+case
+V4L2_CTRL_TYPE_BUTTON:
+2960
+static
+char
+bname[16]; snprintf(bname, 16,
+"Go##%d"
+, ctrl.id);
+2961
+if
+(ImGui::Button(bname)) { ctrl.value = 1; itsCamera->setControl(ctrl); }
+2962
+break
+2963
+2964
+case
+V4L2_CTRL_TYPE_BITMASK:
+2965
+///ss << " K " << qc.maximum << ' ' << qc.default_value << ' ' << ctrl.value;
+2966
+break
+2967
+2968
+case
+V4L2_CTRL_TYPE_MENU:
+2969
+2970
+struct
+v4l2_querymenu querymenu = { };
+2971
+querymenu.id = qc.id;
+2972
+char
+* items[qc.maximum - qc.minimum + 1];
+2973
+2974
+for
+(querymenu.index = qc.minimum; querymenu.index <= (
+unsigned
+int)qc.maximum; ++querymenu.index)
+2975
+2976
+try
+{ itsCamera->queryMenu(querymenu); }
+catch
+(...) { strncpy((
+char
+*)querymenu.name,
+"fixme"
+, 32); }
+2977
+items[querymenu.index] =
+new
+char
+[32];
+2978
+strncpy(items[querymenu.index], (
+char
+const
+*)querymenu.name, 32);
+2979
+2980
+2981
+int
+idx = ctrl.value - qc.minimum;
+2982
+if
+(ImGui::Combo(wname, &idx, items, qc.maximum - qc.minimum + 1))
+2983
+{ ctrl.value = qc.minimum + idx; itsCamera->setControl(ctrl); }
+2984
+2985
+for
+int
+i = qc.minimum; i <= qc.maximum; ++i)
+delete
+[] items[i];
+2986
+2987
+break
+2988
+2989
+default
+break
+2990
+2991
+2992
+// Add a reset button if desired:
+2993
+if
+(reset)
+2994
+2995
+static
+char
+rname[16]; snprintf(rname, 16,
+"Reset##%d"
+, ctrl.id);
+2996
+ImGui::SameLine();
+2997
+if
+(ImGui::Button(rname)) { ctrl.value = qc.default_value; itsCamera->setControl(ctrl); }
+2998
+2999
+3000
+// Restore any grey out:
+3001
+if
+(qc.flags & V4L2_CTRL_FLAG_DISABLED)
+3002
+3003
+ImGui::PopItemFlag();
+3004
+ImGui::PopStyleVar();
+3005
+3006
+3007
+// Ready for next row:
+3008
+ImGui::NextColumn();
+3009
+3010
+3011
+// ####################################################################################################
+3012
+#endif
+// JEVOIS_PRO
+3013
+3014
+// ####################################################################################################
+3015
+void
+jevois::Engine::registerPythonComponent
+jevois::Component
+* comp,
+void
+* pyinst)
+3016
+3017
+LDEBUG
+(comp->
+instanceName
+() <<
+" -> "
+<< std::hex << pyinst);
+3018
+std::lock_guard<std::mutex> _(itsPyRegMtx);
+3019
+auto
+itr = itsPythonRegistry.find(pyinst);
+3020
+if
+(itr != itsPythonRegistry.end())
+LFATAL
+"Trying to register twice -- ABORT"
+);
+3021
+itsPythonRegistry.insert(std::make_pair(pyinst, comp));
+3022
+3023
+3024
+// ####################################################################################################
+3025
+void
+jevois::Engine::unRegisterPythonComponent
+Component
+* comp)
+3026
+3027
+LDEBUG
+(comp->
+instanceName
+());
+3028
+std::lock_guard<std::mutex> _(itsPyRegMtx);
+3029
+auto
+itr = itsPythonRegistry.begin(), stop = itsPythonRegistry.end();
+3030
+while
+(itr != stop)
+if
+(itr->second == comp) itr = itsPythonRegistry.erase(itr);
+else
+++itr;
+3031
+3032
+3033
+// ####################################################################################################
+3034
+jevois::Component
+jevois::Engine::getPythonComponent
+void
+* pyinst)
+const
+3035
+3036
+LDEBUG
+(std::hex << pyinst);
+3037
+std::lock_guard<std::mutex> _(itsPyRegMtx);
+3038
+auto
+itr = itsPythonRegistry.find(pyinst);
+3039
+if
+(itr == itsPythonRegistry.end())
+LFATAL
+"Python instance not registered -- ABORT"
+);
+3040
+return
+itr->second;
+3041
+3042
+3043
+#ifdef JEVOIS_PRO
+3044
+3045
+// ####################################################################################################
+3046
+void
+jevois::Engine::setOpenCVthreading
+char
+const
+* name)
+3047
+3048
+if
+(strncmp(name,
+"jevois"
+, 6) == 0) cv::parallel::setParallelForBackend(itsOpenCVparallelAPI);
+3049
+else
+cv::parallel::setParallelForBackend(name);
+3050
+3051
+3052
+#endif
+Async.H
+Camera.H
+JEVOIS_USBSD_FILE
+#define JEVOIS_USBSD_FILE
+Disk partition or file that we can export over USB using Engine command 'usbsd'.
+Definition
+Config.H:109
+JEVOIS_CUSTOM_DNN_URL
+#define JEVOIS_CUSTOM_DNN_URL
+URL where custom converted DNN models can be downloaded:
+Definition
+Config.H:91
+JEVOIS_MODULE_PARAMS_FILENAME
+#define JEVOIS_MODULE_PARAMS_FILENAME
+Relative name of optinal default parameters to load for each Module.
+Definition
+Config.H:103
+JEVOIS_VERSION_STRING
+#define JEVOIS_VERSION_STRING
+Software version, as string.
+Definition
+Config.H:70
+JEVOIS_USBSD_SYS
+#define JEVOIS_USBSD_SYS
+Sysfs location to change the exported partition or file over USB using Engine command 'usbsd".
+Definition
+Config.H:112
+JEVOIS_CUSTOM_DNN_PATH
+#define JEVOIS_CUSTOM_DNN_PATH
+Directory where custom DNN models are stored:
+Definition
+Config.H:85
+JEVOIS_VERSION_MINOR
+#define JEVOIS_VERSION_MINOR
+Definition
+Config.H:21
+JEVOIS_CONFIG_PATH
+#define JEVOIS_CONFIG_PATH
+Base path for config files.
+Definition
+Config.H:79
+JEVOIS_SHARE_PATH
+#define JEVOIS_SHARE_PATH
+Base path for shared files (e.g., neural network weights, etc)
+Definition
+Config.H:82
+JEVOIS_VERSION_MAJOR
+#define JEVOIS_VERSION_MAJOR
+Variables set by CMake.
+Definition
+Config.H:20
+JEVOISPRO_DEMO_DATA_FILE
+#define JEVOISPRO_DEMO_DATA_FILE
+Location of the jevois-pro demo data definition file.
+Definition
+Config.H:100
+JEVOIS_ENGINE_INIT_SCRIPT
+#define JEVOIS_ENGINE_INIT_SCRIPT
+Location of the engine init script file.
+Definition
+Config.H:97
+JEVOIS_MODULE_SCRIPT_FILENAME
+#define JEVOIS_MODULE_SCRIPT_FILENAME
+Relative name of an Engine script to load for each Module.
+Definition
+Config.H:106
+DynamicLoader.H
+V4L2_CID_AUTO_N_PRESET_WHITE_BALANCE
+#define V4L2_CID_AUTO_N_PRESET_WHITE_BALANCE
+V4L2_CTRL_CLASS_DETECT
+#define V4L2_CTRL_CLASS_DETECT
+Definition
+Engine.C:63
+Engine.H
+GUIconsole.H
+int h
+Definition
+GUIhelper.C:2580
+GUIhelper.H
+GUIserial.H
+success
+#define success()
+Gadget.H
+IMU.H
+IMUi2c.H
+IMUspi.H
+Log.H
+Module.H
+MovieInput.H
+MovieOutput.H
+PythonModule.H
+PythonSupport.H
+Serial.H
+StdioInterface.H
+SysInfo.H
+Utils.H
+JEVOISPRO_FMT_GUI
+#define JEVOISPRO_FMT_GUI
+JeVois-Pro zero-copy display of camera input frame (to be used as output mode in VideoMapping)
+Definition
+Utils.H:31
+VideoDisplayGL.H
+VideoDisplayGUI.H
+VideoDisplay.H
+VideoOutputNone.H
+jevois::CameraCalibration
+Helper class for camera calibration, which allows some modules to compute 3D locations of objects.
+Definition
+CameraCalibration.H:29
+jevois::CameraCalibration::save
+void save(std::string const &fname) const
+Save to file.
+Definition
+CameraCalibration.C:39
+jevois::CameraCalibration::lens
+jevois::CameraLens lens
+Camera lens.
+Definition
+CameraCalibration.H:32
+jevois::CameraCalibration::w
+int w
+Definition
+CameraCalibration.H:34
+jevois::CameraCalibration::h
+int h
+Image width and height (camera resolution)
+Definition
+CameraCalibration.H:34
+jevois::CameraCalibration::sensor
+jevois::CameraSensor sensor
+Camera sensor.
+Definition
+CameraCalibration.H:31
+jevois::CameraCalibration::load
+void load(std::string const &fname)
+Load from file.
+Definition
+CameraCalibration.C:23
+jevois::Camera
+JeVois camera driver class - grabs frames from a Video4Linux camera sensor.
+Definition
+Camera.H:63
+jevois::Component
+A component of a model hierarchy.
+Definition
+Component.H:182
+jevois::Component::Engine
+friend class Engine
+Definition
+Component.H:520
+jevois::Component::instanceName
+std::string const & instanceName() const
+The instance name of this component.
+Definition
+Component.C:50
+jevois::DynamicLoader
+Class to open shared object (.so) files and load functions contained in them.
+Definition
+DynamicLoader.H:70
+jevois::Engine::getPythonComponent
+Component * getPythonComponent(void *pyinst) const
+Get the component registered with a given python instance.
+Definition
+Engine.C:3034
+jevois::Engine::requestSetFormat
+void requestSetFormat(int idx)
+Use this to request a format change from within process()
+Definition
+Engine.C:942
+jevois::Engine::streamOn
+void streamOn()
+Start streaming on video from camera, processing, and USB.
+Definition
+Engine.C:910
+jevois::Engine::drawCameraGUI
+void drawCameraGUI()
+Draw all camera controls into our GUI.
+Definition
+Engine.C:2878
+jevois::Engine::nextDemo
+void nextDemo()
+When in demo mode, switch to next demo.
+Definition
+Engine.C:610
+jevois::Engine::reboot
+void reboot()
+Request a reboot.
+Definition
+Engine.C:1867
+jevois::Engine::preInit
+void preInit() override
+Override of Manager::preInit()
+Definition
+Engine.C:627
+jevois::Engine::onParamChange
+void onParamChange(engine::serialdev const &param, std::string const &newval) override
+Parameter callback.
+jevois::Engine::saveCameraCalibration
+void saveCameraCalibration(CameraCalibration const &calib, std::string const &stem="calibration")
+Helper to save an OpenCV camera matrix and distortion coeffs for the current running module.
+Definition
+Engine.C:1527
+jevois::Engine::numVideoMappings
+size_t numVideoMappings() const
+Return the number of video mappings.
+Definition
+Engine.C:1545
+jevois::Engine::module
+std::shared_ptr< Module > module() const
+Get a pointer to our current module (may be null)
+Definition
+Engine.C:1477
+jevois::Engine::abortDemo
+void abortDemo()
+When in demo mode, abort demo mode.
+Definition
+Engine.C:614
+jevois::Engine::getDefaultVideoMappingIdx
+size_t getDefaultVideoMappingIdx() const
+Allow access to the default video mapping index.
+Definition
+Engine.C:1593
+jevois::Engine::setFormat
+void setFormat(size_t idx)
+Callback for when the user selects a new output video format.
+Definition
+Engine.C:949
+jevois::Engine::reportInfo
+void reportInfo(std::string const &info)
+Definition
+Engine.C:1410
+jevois::Engine::unRegisterPythonComponent
+void unRegisterPythonComponent(Component *comp)
+Unregister a component as linked to some python code, used by dynamic params created in python.
+Definition
+Engine.C:3025
+jevois::Engine::setOpenCVthreading
+void setOpenCVthreading(char const *name="jevois")
+Set OpenCV parallel threading framework.
+Definition
+Engine.C:3046
+jevois::Engine::sendSerial
+void sendSerial(std::string const &str, bool islog=false)
+Send a string to all serial ports.
+Definition
+Engine.C:1356
+jevois::Engine::streamOff
+void streamOff()
+Stop streaming on video from camera, processing, and USB.
+Definition
+Engine.C:921
+jevois::Engine::runScriptFromFile
+void runScriptFromFile(std::string const &filename, std::shared_ptr< UserInterface > ser, bool throw_no_file)
+Run a script from file.
+Definition
+Engine.C:2800
+jevois::Engine::quit
+void quit()
+Terminate the program.
+Definition
+Engine.C:1888
+jevois::Engine::parseCommand
+bool parseCommand(std::string const &str, std::shared_ptr< UserInterface > s, std::string const &pfx="")
+Parse a user command received over serial port.
+Definition
+Engine.C:1990
+jevois::Engine::mainLoop
+int mainLoop()
+Main loop: grab, process, send over USB. Should be called by main application thread.
+Definition
+Engine.C:1105
+jevois::Engine::~Engine
+~Engine()
+Destructor.
+Definition
+Engine.C:840
+jevois::Engine::getVideoMapping
+VideoMapping const & getVideoMapping(size_t idx) const
+Allow access to our video mappings which are parsed from file at construction.
+Definition
+Engine.C:1549
+jevois::Engine::getVideoMappingIdx
+size_t getVideoMappingIdx(unsigned int iformat, unsigned int iframe, unsigned int interval) const
+Get the video mapping index for a given UVC iformat, iframe and interval.
+Definition
+Engine.C:1558
+jevois::Engine::getCurrentVideoMapping
+VideoMapping const & getCurrentVideoMapping() const
+Get the current video mapping.
+Definition
+Engine.C:1541
+jevois::Engine::registerPythonComponent
+void registerPythonComponent(Component *comp, void *pyinst)
+Register a component as linked to some python code, used by dynamic params created in python.
+Definition
+Engine.C:3015
+jevois::Engine::loadCameraCalibration
+CameraCalibration loadCameraCalibration(std::string const &stem="calibration", bool do_throw=false)
+Helper to load an OpenCV camera matrix and distortion coeffs for the current running module.
+Definition
+Engine.C:1489
+jevois::Engine::findVideoMapping
+VideoMapping const & findVideoMapping(unsigned int oformat, unsigned int owidth, unsigned int oheight, float oframespersec) const
+Find the VideoMapping that has the given output specs, or throw if not found.
+Definition
+Engine.C:1605
+jevois::Engine::reloadVideoMappings
+void reloadVideoMappings()
+Re-load video mappings from videomappings.cfg.
+Definition
+Engine.C:638
+jevois::Engine::postInit
+void postInit() override
+Override of Manager::postInit()
+Definition
+Engine.C:651
+jevois::Engine::camera
+std::shared_ptr< Camera > camera() const
+Get a pointer to our Camera (may be null, especially if not using a camera but, eg,...
+Definition
+Engine.C:1485
+jevois::Engine::getDefaultVideoMapping
+VideoMapping const & getDefaultVideoMapping() const
+Allow access to the default video mapping.
+Definition
+Engine.C:1589
+jevois::Engine::clearErrors
+void clearErrors()
+Clear all errors currently displayed in the JeVois-Pro GUI.
+Definition
+Engine.C:1419
+jevois::Engine::foreachVideoMapping
+void foreachVideoMapping(std::function< void(VideoMapping const &m)> &&func)
+Run a function on every video mapping.
+Definition
+Engine.C:1597
+jevois::Engine::reportError
+void reportError(std::string const &err)
+Definition
+Engine.C:1401
+jevois::Gadget
+JeVois gadget driver - exposes a uvcvideo interface to host computer connected over USB.
+Definition
+Gadget.H:66
+jevois::IMUi2c
+IMU with I2C interface shared with camera sensor, such as ICM20948 on JeVois-A33 AR0135 camera sensor...
+Definition
+IMUi2c.H:29
+jevois::IMUspi
+IMU with SPI interface, such as the ICM20948 IMU on the JeVois-Pro IMX290 camera sensor board.
+Definition
+IMUspi.H:30
+jevois::InputFrame
+Exception-safe wrapper around a raw camera input frame.
+Definition
+InputFrame.H:51
+jevois::Manager
+Manager of a hierarchy of Component objects.
+Definition
+Manager.H:74
+jevois::Manager::postInit
+void postInit() override
+Checks for the –help flag.
+Definition
+Manager.C:59
+jevois::Manager::preInit
+void preInit() override
+Calls parseCommandLine()
+Definition
+Manager.C:49
+jevois::MovieInput
+Movie input, can be used as a replacement for Camera to debug algorithms using a fixed video sequence...
+Definition
+MovieInput.H:36
+jevois::MovieOutput
+Video output to a movie file, using OpenCV video encoding.
+Definition
+MovieOutput.H:34
+jevois::OutputFrame
+Exception-safe wrapper around a raw image to be sent over USB.
+Definition
+OutputFrame.H:53
+jevois::PythonModule
+Wrapper module to allow users to develop new modules written in Python.
+Definition
+PythonModule.H:367
+jevois::StdModule
+Base class for a module that supports standardized serial messages.
+Definition
+Module.H:234
+jevois::StdModule::sendSerialMarkStop
+void sendSerialMarkStop()
+Send a message MARK STOP to indicate the end of processing.
+Definition
+Module.C:527
+jevois::StdModule::sendSerialMarkStart
+void sendSerialMarkStart()
+Send a message MARK START to indicate the beginning of processing.
+Definition
+Module.C:519
+jevois::UserInterface::Type::GUI
+@ GUI
+jevois::UserInterface::Type::Hard
+@ Hard
+jevois::UserInterface::Type::USB
+@ USB
+jevois::VideoDisplayGL
+Video output to local screen.
+Definition
+VideoDisplayGL.H:51
+jevois::VideoDisplayGUI
+Video output to local screen with basic GUI.
+Definition
+VideoDisplayGUI.H:37
+jevois::VideoDisplay
+Video output to local screen.
+Definition
+VideoDisplay.H:35
+jevois::VideoOutputNone
+No-op VideoOutput derivative for when there is no video output.
+Definition
+VideoOutputNone.H:29
+jevois::Watchdog
+Simple watchdog class.
+Definition
+Watchdog.H:30
+jevois::sensorHasIMU
+bool sensorHasIMU(CameraSensor s)
+Check whether sensor has an IMU (inertial measurement unit)
+Definition
+CameraSensor.C:279
+LFATAL
+#define LFATAL(msg)
+Convenience macro for users to print out console or syslog messages, FATAL level.
+Definition
+Log.H:230
+LDEBUG
+#define LDEBUG(msg)
+Convenience macro for users to print out console or syslog messages, DEBUG level.
+Definition
+Log.H:173
+JEVOIS_TIMED_LOCK
+#define JEVOIS_TIMED_LOCK(mtx)
+Helper macro to create a timed_lock_guard object.
+Definition
+Log.H:328
+jevois::logSetEngine
+void logSetEngine(Engine *e)
+Set an Engine so that all log messages will be forwarded to its serial ports.
+Definition
+Log.C:144
+jevois::getSysInfoCPU
+std::string getSysInfoCPU()
+Get CPU info: frequency, thermal, load.
+Definition
+SysInfo.C:24
+jevois::warnAndIgnoreException
+std::string warnAndIgnoreException(std::string const &prefix="")
+Convenience function to catch an exception, issue some LERROR (depending on type),...
+Definition
+Log.C:236
+JEVOIS_TRACE
+#define JEVOIS_TRACE(level)
+Trace object.
+Definition
+Log.H:296
+jevois::getSysInfoMem
+std::string getSysInfoMem()
+Get memory info.
+Definition
+SysInfo.C:66
+jevois::getSysInfoVersion
+std::string getSysInfoVersion()
+Get O.S. version info.
+Definition
+SysInfo.C:74
+LERROR
+#define LERROR(msg)
+Convenience macro for users to print out console or syslog messages, ERROR level.
+Definition
+Log.H:211
+LINFO
+#define LINFO(msg)
+Convenience macro for users to print out console or syslog messages, INFO level.
+Definition
+Log.H:194
+jevois::python::setEngine
+void setEngine(jevois::Engine *e)
+Initialize Python, numpy, and allow python modules to send serial outputs through the JeVois Engine.
+Definition
+PythonSupport.C:102
+jevois::strip
+std::string strip(std::string const &str)
+Strip white space (including CR, LF, tabs, etc) from the end of a string.
+Definition
+Utils.C:309
+jevois::getFileString
+std::string getFileString(char const *fname, int skip=0)
+Read one line from a file and return it as a string.
+Definition
+Utils.C:542
+jevois::system
+std::string system(std::string const &cmd, bool errtoo=true)
+Execute a command and grab stdout output to a string.
+Definition
+Utils.C:462
+jevois::stringStartsWith
+bool stringStartsWith(std::string const &str, std::string const &prefix)
+Return true if str starts with prefix (including if both strings are equal)
+Definition
+Utils.C:295
+jevois::fccstr
+std::string fccstr(unsigned int fcc)
+Convert a V4L2 four-cc code (V4L2_PIX_FMT_...) to a 4-char string.
+Definition
+Utils.C:45
+jevois::split
+std::vector< std::string > split(std::string const &input, std::string const &regex="\\s+")
+Split string into vector of tokens using a regex to specify what to split on; default regex splits by...
+Definition
+Utils.C:270
+jevois::to_string
+std::string to_string(T const &val)
+Convert from type to string.
+jevois::async_little
+std::future< std::invoke_result_t< std::decay_t< Function >, std::decay_t< Args >... > > async_little(Function &&f, Args &&... args)
+Async execution using a thread pool.
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+jevois::drawErrorImage
+void drawErrorImage(std::string const &errmsg, RawImage &videoerrimg)
+Display an error message into a RawImage.
+Definition
+Log.C:300
+jevois::VideoMapping
+Simple struct to hold video mapping definitions for the processing Engine.
+Definition
+VideoMapping.H:62
+jevois::VideoMapping::modulename
+std::string modulename
+Name of the Module that will process this mapping.
+Definition
+VideoMapping.H:78
+jevois::VideoMapping::ostr
+std::string ostr() const
+Convenience function to print out FCC WxH @ fps, for the output (UVC) format.
+Definition
+VideoMapping.C:123
+jevois::VideoMapping::str
+std::string str() const
+Convenience function to print out the whole mapping in a human-friendly way.
+Definition
+VideoMapping.C:155
+jevois::VideoMapping::cstrall
+std::string cstrall() const
+Convenience function to print out FCC WxH @ fps plus possibly second stream, for the input (camera) f...
+Definition
+VideoMapping.C:147
+jevois::VideoMapping::ispython
+bool ispython
+True if the module is written in Python; affects behavior of sopath() only.
+Definition
+VideoMapping.H:82
+jevois::VideoMapping::ofps
+float ofps
+output frame rate in frames/sec
+Definition
+VideoMapping.H:66
+jevois::VideoMapping::isSameAs
+bool isSameAs(VideoMapping const &other) const
+Equality operator for specs and also vendor or module name.
+Definition
+VideoMapping.C:209
+jevois::VideoMapping::uvcformat
+unsigned int uvcformat
+USB-UVC format number (1-based)
+Definition
+VideoMapping.H:73
+jevois::VideoMapping::uvcToFps
+static float uvcToFps(unsigned int interval)
+Convert from USB/UVC interval to fps.
+Definition
+VideoMapping.C:97
+jevois::VideoMapping::uvcframe
+unsigned int uvcframe
+USB UVC frame number (1-based)
+Definition
+VideoMapping.H:74
+jevois::VideoMapping::sopath
+std::string sopath(bool delete_old_versions=false) const
+Return the full absolute path and file name of the module's .so or .py file.
+Definition
+VideoMapping.C:36
+jevois::VideoMapping::match
+bool match(unsigned int oformat, unsigned int owidth, unsigned int oheight, float oframespersec) const
+Return true if this VideoMapping's output format is a match to the given output parameters.
+Definition
+VideoMapping.C:511
+src
+jevois
+Core
+Engine.C
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+

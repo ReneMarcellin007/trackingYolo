@@ -1,0 +1,2226 @@
+DOCUMENTATION JEVOIS - PARTIE 9
+Catégorie principale: PYTHON
+Nombre de documents: 2
+================================================================================
+
+
+================================================================================
+URL: http://jevois.org/doc/PythonModule_8H_source.html
+TITRE: JeVois: include/jevois/Core/PythonModule.H Source File
+================================================================================
+
+JeVois: include/jevois/Core/PythonModule.H Source File
+JeVois
+1.23
+JeVois Smart Embedded Machine Vision Toolkit
+Share this page:
+Tweet
+Loading...
+Searching...
+No Matches
+PythonModule.H
+Go to the documentation of this file.
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// JeVois Smart Embedded Machine Vision Toolkit - Copyright (C) 2016 by Laurent Itti, the University of Southern
+// California (USC), and iLab at USC. See http://iLab.usc.edu and http://jevois.org for information about this project.
+//
+// This file is part of the JeVois Smart Embedded Machine Vision Toolkit.  This program is free software; you can
+// redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 2.  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+10
+// License for more details.  You should have received a copy of the GNU General Public License along with this program;
+11
+// if not, write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+12
+//
+13
+// Contact information: Laurent Itti - 3641 Watt Way, HNB-07A - Los Angeles, CA 90089-2520 - USA.
+14
+// Tel: +1 213 740 3527 - itti@pollux.usc.edu - http://iLab.usc.edu - http://jevois.org
+15
+// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+16
+/*! \file */
+17
+18
+#pragma once
+19
+20
+#include <
+jevois/Core/Module.H
+21
+#include <
+jevois/Core/VideoMapping.H
+22
+#include <
+jevois/Core/PythonWrapper.H
+23
+#include <
+jevois/GPU/GUIhelper.H
+24
+25
+namespace
+jevois
+26
+27
+class
+Engine;
+28
+29
+/*! \defgroup python Support for JeVois modules written in Python
+30
+31
+In addition to writing modules in C++, JeVois supports writing modules in Python. JeVois provides two-way
+32
+mappings:
+33
+34
+- C++ functions and classes of JeVois become accessible in Python by importing Python package \p libjevois
+35
+- The JeVois engine can directly invoke class member functions of a Python class implementing a machine vision
+36
+processing module
+37
+38
+\ingroup core */
+39
+40
+//! Wrapper around InputFrame to be used by Python
+41
+/*! This wrapper is to work around the lack of move semantics in our Python support. This class is not intended for
+42
+general use, but only for use by PythonModule. Users of this class must ensure that the original InputFrame will
+43
+outlive any and all InputFramePython instances, since InputFramePython just references to the source InputFrame by
+44
+unprotected raw pointer. Although the C++ object is called InputFramePython, we will expose it to python under
+45
+the name InputFrame (see PythonSupport.C). \ingroup python */
+46
+class
+InputFramePython
+47
+48
+public
+49
+//! Default constructor to keep boost::python happy, object is not operational
+50
+InputFramePython
+() =
+default
+51
+52
+//! Construct from a regular (move-only) InputFrame that should be be coming from Engine
+53
+InputFramePython
+InputFrame
+* src);
+54
+55
+//! Get the next captured camera image, thin wrapper for default arg value
+56
+RawImage
+const
+get1
+bool
+casync)
+const
+57
+58
+//! Get the next captured camera image, thin wrapper for default arg value
+59
+RawImage
+const
+get
+()
+const
+60
+61
+//! Check whether a second input image scaled by the JeVoisPro Platform ISP is available
+62
+bool
+hasScaledImage
+()
+const
+63
+64
+//! Indicate that user processing is done with the image previously obtained via get()
+65
+void
+done
+()
+const
+66
+67
+//! Indicate that user processing is done with the ISP-scaled image previously obtained via get2()
+68
+void
+done2
+()
+const
+69
+70
+//! Get the next captured camera image, ISP-scaled second frame
+71
+RawImage
+const
+get21
+bool
+casync)
+const
+72
+73
+//! Get the next captured camera image, ISP-scaled second frame
+74
+RawImage
+const
+get2
+()
+const
+75
+76
+//! Get the next captured camera image that is intended for processing
+77
+RawImage
+const
+getp1
+bool
+casync)
+const
+78
+79
+//! Get the next captured camera image that is intended for processing
+80
+RawImage
+const
+getp
+()
+const
+81
+82
+//! Shorthand to get the input image as a GRAY cv::Mat and release the raw buffer
+83
+cv::Mat
+getCvGRAY1
+bool
+casync)
+const
+84
+85
+//! Shorthand to get the input image as a GRAY cv::Mat and release the raw buffer
+86
+cv::Mat
+getCvGRAY
+()
+const
+87
+88
+//! Shorthand to get the input image as a BGR cv::Mat and release the raw buffer
+89
+cv::Mat
+getCvBGR1
+bool
+casync)
+const
+90
+91
+//! Shorthand to get the input image as a BGR cv::Mat and release the raw buffer
+92
+cv::Mat
+getCvBGR
+()
+const
+93
+94
+//! Shorthand to get the input image as a RGB cv::Mat and release the raw buffer
+95
+cv::Mat
+getCvRGB1
+bool
+casync)
+const
+96
+97
+//! Shorthand to get the input image as a RGB cv::Mat and release the raw buffer
+98
+cv::Mat
+getCvRGB
+()
+const
+99
+100
+//! Shorthand to get the input image as a RGBA cv::Mat and release the raw buffer
+101
+cv::Mat
+getCvRGBA1
+bool
+casync)
+const
+102
+103
+//! Shorthand to get the input image as a RGBA cv::Mat and release the raw buffer
+104
+cv::Mat
+getCvRGBA
+()
+const
+105
+106
+//! Shorthand to get the input image for processing as a GRAY cv::Mat and release the raw buffer
+107
+cv::Mat
+getCvGRAYp
+()
+const
+108
+109
+//! Shorthand to get the input image for processing as a BGR cv::Mat and release the raw buffer
+110
+cv::Mat
+getCvBGRp
+()
+const
+111
+112
+//! Shorthand to get the input image for processing as a RGB cv::Mat and release the raw buffer
+113
+cv::Mat
+getCvRGBp
+()
+const
+114
+115
+//! Shorthand to get the input image for processing as a RGBA cv::Mat and release the raw buffer
+116
+cv::Mat
+getCvRGBAp
+()
+const
+117
+118
+private
+119
+friend
+class
+GUIhelperPython
+120
+InputFrame
+* itsInputFrame;
+121
+};
+122
+123
+//! Wrapper around OutputFrame to be used by Python
+124
+/*! This wrapper is to work around the lack of move semantics in our Python support. This class is not intended for
+125
+general use, but only for use by PythonModule. Users of this class must ensure that the original OutputFrame will
+126
+outlive any and all OutputFramePython instances, since OutputFramePython just references to the source OutputFrame
+127
+by unprotected raw pointer. Although the C++ object is called OutputFramePython, we will expose it to python
+128
+under the name OutputFrame (see PythonSupport.C). \ingroup python */
+129
+class
+OutputFramePython
+130
+131
+public
+132
+//! Default constructor to keep boost::python happy, object is not operational
+133
+OutputFramePython
+() =
+default
+134
+135
+//! Construct from a regular (move-only) OutputFrame that should be be coming from Engine
+136
+OutputFramePython
+OutputFrame
+* src);
+137
+138
+//! Get the next captured camera image
+139
+RawImage
+const
+get
+()
+const
+140
+141
+//! Indicate that user processing is done with the image previously obtained via get()
+142
+void
+send
+()
+const
+143
+144
+//! Shorthand to send a cv::Mat after scaling/converting it to the current output format
+145
+/* The pixel format of the given cv::Mat is guessed as follows:
+146
+147
+- if img.type() == CV_8UC3, assume BGR pixels
+148
+- if img.type() == CV_8UC1, assume GRAY pixels
+149
+- if img.type() == CV_8UC4, assume RGBA pixels
+150
+151
+If this is not what you want (e.g., you have CV_8UC3 but RGB pixels instead of BGR, then  use the
+152
+other, more specialized sendScaledCv...() functions. */
+153
+void
+sendCv1
+(cv::Mat
+const
+& img,
+int
+quality)
+const
+154
+155
+//! Shorthand to send a cv::Mat after scaling/converting it to the current output format
+156
+/* The pixel format of the given cv::Mat is guessed as follows:
+157
+158
+- if img.type() == CV_8UC3, assume BGR pixels
+159
+- if img.type() == CV_8UC1, assume GRAY pixels
+160
+- if img.type() == CV_8UC4, assume RGBA pixels
+161
+162
+If this is not what you want (e.g., you have CV_8UC3 but RGB pixels instead of BGR, then  use the
+163
+other, more specialized sendScaledCv...() functions. */
+164
+void
+sendCv
+(cv::Mat
+const
+& img)
+const
+165
+166
+//! Shorthand to send a GRAY cv::Mat after converting it to the current output format
+167
+void
+sendCvGRAY1
+(cv::Mat
+const
+& img,
+int
+quality)
+const
+168
+169
+//! Shorthand to send a GRAY cv::Mat after converting it to the current output format
+170
+void
+sendCvGRAY
+(cv::Mat
+const
+& img)
+const
+171
+172
+//! Shorthand to send a BGR cv::Mat after converting it to the current output format
+173
+void
+sendCvBGR1
+(cv::Mat
+const
+& img,
+int
+quality)
+const
+174
+175
+//! Shorthand to send a BGR cv::Mat after converting it to the current output format
+176
+void
+sendCvBGR
+(cv::Mat
+const
+& img)
+const
+177
+178
+//! Shorthand to send a RGB cv::Mat after converting it to the current output format
+179
+void
+sendCvRGB1
+(cv::Mat
+const
+& img,
+int
+quality)
+const
+180
+181
+//! Shorthand to send a RGB cv::Mat after converting it to the current output format
+182
+void
+sendCvRGB
+(cv::Mat
+const
+& img)
+const
+183
+184
+//! Shorthand to send a RGBA cv::Mat after converting it to the current output format
+185
+void
+sendCvRGBA1
+(cv::Mat
+const
+& img,
+int
+quality)
+const
+186
+187
+//! Shorthand to send a RGBA cv::Mat after converting it to the current output format
+188
+void
+sendCvRGBA
+(cv::Mat
+const
+& img)
+const
+189
+190
+//! Shorthand to send a GRAY cv::Mat after scaling/converting it to the current output format
+191
+void
+sendScaledCvGRAY1
+(cv::Mat
+const
+& img,
+int
+quality)
+const
+192
+193
+//! Shorthand to send a GRAY cv::Mat after scaling/converting it to the current output format
+194
+void
+sendScaledCvGRAY
+(cv::Mat
+const
+& img)
+const
+195
+196
+//! Shorthand to send a BGR cv::Mat after scaling/converting it to the current output format
+197
+void
+sendScaledCvBGR1
+(cv::Mat
+const
+& img,
+int
+quality)
+const
+198
+199
+//! Shorthand to send a BGR cv::Mat after scaling/converting it to the current output format
+200
+void
+sendScaledCvBGR
+(cv::Mat
+const
+& img)
+const
+201
+202
+//! Shorthand to send a RGB cv::Mat after scaling/converting it to the current output format
+203
+void
+sendScaledCvRGB1
+(cv::Mat
+const
+& img,
+int
+quality)
+const
+204
+205
+//! Shorthand to send a RGB cv::Mat after scaling/converting it to the current output format
+206
+void
+sendScaledCvRGB
+(cv::Mat
+const
+& img)
+const
+207
+208
+//! Shorthand to send a RGBA cv::Mat after scaling/converting it to the current output format
+209
+void
+sendScaledCvRGBA1
+(cv::Mat
+const
+& img,
+int
+quality)
+const
+210
+211
+//! Shorthand to send a RGBA cv::Mat after scaling/converting it to the current output format
+212
+void
+sendScaledCvRGBA
+(cv::Mat
+const
+& img)
+const
+213
+214
+private
+215
+OutputFrame
+* itsOutputFrame;
+216
+};
+217
+218
+#ifdef JEVOIS_PRO
+219
+//! Wrapper around GUIhelper to be used by Python
+220
+/*! This class is not intended for general use, but only for use by PythonModule. Users of this class must ensure that
+221
+the original GUIhelper will outlive any and all GUIhelperPython instances, since GUIhelperPython just references
+222
+to the source GUIhelper by unprotected raw pointer. Although the C++ object is called GUIhelperPython, we will
+223
+expose it to python under the name GUIhelper (see PythonSupport.C). \ingroup python */
+224
+class
+GUIhelperPython
+225
+226
+public
+227
+//! Construct from a regular GUIhelper that should be be coming from Engine
+228
+GUIhelperPython
+GUIhelper
+* src);
+229
+230
+//! Start a new rendering frame
+231
+boost::python::tuple
+startFrame
+();
+232
+233
+//! Helper to indicate that startFrame() was called, and thus endFrame() should be called
+234
+bool
+frameStarted
+()
+const
+235
+236
+//! Draw a RawImage, copying pixel data to an OpenGL texture
+237
+boost::python::tuple
+drawImage
+char
+const
+* name,
+RawImage
+const
+& img,
+238
+bool
+noalias =
+false
+bool
+isoverlay =
+false
+);
+239
+240
+//! Draw an OpenCV image, copying pixel data to an OpenGL texture
+241
+boost::python::tuple
+drawImage1
+char
+const
+* name, cv::Mat
+const
+& img,
+bool
+rgb,
+242
+bool
+noalias =
+false
+bool
+isoverlay =
+false
+);
+243
+244
+//! Draw an OpenCV image, copying pixel data to an OpenGL texture
+245
+boost::python::tuple
+drawImage2
+char
+const
+* name,
+RawImage
+const
+& img,
+int
+x,
+int
+y,
+int
+w,
+int
+246
+bool
+noalias =
+false
+bool
+isoverlay =
+false
+);
+247
+248
+//! Draw an OpenCV image, copying pixel data to an OpenGL texture
+249
+boost::python::tuple
+drawImage3
+char
+const
+* name, cv::Mat
+const
+& img,
+bool
+rgb,
+int
+x,
+int
+y,
+int
+w,
+int
+250
+bool
+noalias =
+false
+bool
+isoverlay =
+false
+);
+251
+252
+//! Draw the input video frame from the camera using zero-copy
+253
+boost::python::tuple
+drawInputFrame
+char
+const
+* name,
+InputFramePython
+const
+& frame,
+254
+bool
+noalias =
+false
+bool
+casync =
+false
+);
+255
+256
+//! Draw the second (scaled) input video frame from the camera using zero-copy
+257
+boost::python::tuple
+drawInputFrame2
+char
+const
+* name,
+InputFramePython
+const
+& frame,
+258
+bool
+noalias =
+false
+bool
+casync =
+false
+);
+259
+260
+//! Convert coordinates of a point from within a rendered image to on-screen
+261
+ImVec2
+i2d
+(ImVec2 p,
+char
+const
+* name =
+nullptr
+);
+262
+263
+//! Convert coordinates of a point from within a rendered image to on-screen
+264
+ImVec2
+i2d1
+float
+x,
+float
+y,
+char
+const
+* name =
+nullptr
+);
+265
+266
+//! Convert a 2D size from within a rendered image to on-screen
+267
+ImVec2
+i2ds
+(ImVec2 p,
+char
+const
+* name =
+nullptr
+);
+268
+269
+//! Convert a 2D size from within a rendered image to on-screen
+270
+ImVec2
+i2ds1
+float
+x,
+float
+y,
+char
+const
+* name =
+nullptr
+);
+271
+272
+//! Draw line over an image
+273
+void
+drawLine
+float
+x1,
+float
+y1,
+float
+x2,
+float
+y2, ImU32 col = IM_COL32(128,255,128,255));
+274
+275
+//! Draw rectangular box over an image
+276
+void
+drawRect
+float
+x1,
+float
+y1,
+float
+x2,
+float
+y2, ImU32 col = IM_COL32(128,255,128,255),
+bool
+filled =
+true
+);
+277
+278
+//! Draw polygon over an image
+279
+void
+drawPoly
+(std::vector<cv::Point>
+const
+& pts, ImU32 col = IM_COL32(128,255,128,255),
+bool
+filled =
+true
+);
+280
+281
+//! Draw polygon over an image
+282
+void
+drawPoly1
+(std::vector<cv::Point2f>
+const
+& pts, ImU32 col = IM_COL32(128,255,128,255),
+bool
+filled =
+true
+);
+283
+284
+//! Draw polygon over an image
+285
+void
+drawPoly2
+(cv::Mat
+const
+& pts, ImU32 col = IM_COL32(128,255,128,255),
+bool
+filled =
+true
+);
+286
+287
+//! Draw circle over an image
+288
+void
+drawCircle
+float
+x,
+float
+y,
+float
+r, ImU32 col = IM_COL32(128,255,128,255),
+bool
+filled =
+true
+);
+289
+290
+//! Draw ellipse over an image
+291
+void
+drawEllipse
+float
+x,
+float
+y,
+float
+rx,
+float
+ry,
+float
+rot = 0.0F,
+292
+ImU32 col = IM_COL32(128,255,128,255),
+bool
+filled =
+true
+);
+293
+294
+//! Draw text over an image
+295
+void
+drawText
+float
+x,
+float
+y,
+char
+const
+* txt, ImU32 col = IM_COL32(128,255,128,255));
+296
+297
+//! Get coordinates of the start of a given line of text to be drawn as overlay on top of an image
+298
+ImVec2
+iline
+int
+line = -1,
+char
+const
+* name =
+nullptr
+);
+299
+300
+//! Draw some overlay text on top of an image
+301
+void
+itext
+char
+const
+* txt, ImU32
+const
+& col = IM_COL32_BLACK_TRANS,
+int
+line = -1);
+302
+303
+//! Draw some overlay text on top of an image, default color and line
+304
+void
+itext2
+char
+const
+* txt);
+305
+306
+//! Display processing and video info at bottom of screen
+307
+void
+iinfo
+jevois::InputFramePython
+const
+& inframe, std::string
+const
+& fpscpu,
+308
+unsigned
+short
+winw = 0,
+unsigned
+short
+winh = 0);
+309
+310
+//! Release an image
+311
+void
+releaseImage
+char
+const
+* name);
+312
+313
+//! Release an image, second video stream
+314
+void
+releaseImage2
+char
+const
+* name);
+315
+316
+//! Finish current frame and render it
+317
+void
+endFrame
+();
+318
+319
+//! Convert coordinates of a point from on-screen to within a rendered image
+320
+ImVec2
+d2i
+(ImVec2 p,
+char
+const
+* name =
+nullptr
+);
+321
+322
+//! Convert coordinates of a point from on-screen to within a rendered image
+323
+ImVec2
+d2i1
+float
+x,
+float
+y,
+char
+const
+* name =
+nullptr
+);
+324
+325
+//! Convert a 2D size from on-screen to within a rendered image
+326
+ImVec2
+d2is
+(ImVec2 p,
+char
+const
+* name =
+nullptr
+);
+327
+328
+//! Convert a 2D size from on-screen to within a rendered image
+329
+ImVec2
+d2is1
+float
+x,
+float
+y,
+char
+const
+* name =
+nullptr
+);
+330
+331
+//! Report an error in an overlay window
+332
+void
+reportError
+(std::string
+const
+& err);
+333
+334
+//! Report current exception in a modal dialog, then ignore it
+335
+void
+reportAndIgnoreException
+(std::string
+const
+& prefix =
+""
+);
+336
+337
+//! Report current exception in a modal dialog, then re-throw it
+338
+void
+reportAndRethrowException
+(std::string
+const
+& prefix =
+""
+);
+339
+340
+//! ImGui helper: get mouse position
+341
+ImVec2
+getMousePos
+();
+342
+343
+//! ImGui helper: check if mouse button clicked
+344
+bool
+isMouseClicked
+int
+button_num);
+345
+346
+//! ImGui helper: check if mouse button double-clicked
+347
+bool
+isMouseDoubleClicked
+int
+button_num);
+348
+349
+//! ImGui helper: check if mouse button dragged
+350
+bool
+isMouseDragging
+int
+button_num);
+351
+352
+//! ImGui helper: check if mouse button pressed
+353
+bool
+isMouseDown
+int
+button_num);
+354
+355
+//! ImGui helper: check if mouse button released
+356
+bool
+isMouseReleased
+int
+button_num);
+357
+358
+private
+359
+GUIhelper
+* itsGUIhelper;
+360
+};
+361
+#endif
+362
+363
+//! Wrapper module to allow users to develop new modules written in Python
+364
+/*! This wrapper module calls a process function written in Python on every frame. Note how sendSerial() is added
+365
+dynamically after the python class is defined, as a new member function of the class. \ingroup python */
+366
+class
+PythonModule
+public
+Module
+public
+PythonWrapper
+367
+368
+public
+369
+//! Constructor needs the full path to a Python source code file
+370
+/*! Note that, contrary to C++ modules, construction will not throw. This is so that the module is always valid
+371
+and initialized, and its module path can be set by Engine, which is necessary to allow saving the source code
+372
+from JeVois Inventor. Instead, any construction error is stored internally in this class and will be re-thrown
+373
+at any access to process(), parfseSerial(), etc. */
+374
+PythonModule
+VideoMapping
+const
+& m);
+375
+376
+//! Load python code and optionally call init() python module function, if implemented
+377
+void
+preInit
+()
+override
+378
+379
+//! Virtual destructor for safe inheritance
+380
+virtual
+~PythonModule
+();
+381
+382
+//! Processing function, version that receives a frame from camera and sends a frame out over USB
+383
+virtual
+void
+process
+InputFrame
+&& inframe,
+OutputFrame
+&& outframe)
+override
+384
+385
+//! Processing function, version that receives a frame from camera and does not use USB
+386
+virtual
+void
+process
+InputFrame
+&& inframe)
+override
+387
+388
+#ifdef JEVOIS_PRO
+389
+//! Processing function, version that receives a frame from camera, no USB, but GUI output on JeVois-Pro
+390
+virtual
+void
+process
+InputFrame
+&& inframe,
+GUIhelper
+& helper);
+391
+#endif
+392
+393
+//! Receive a string from a serial port which contains a user command
+394
+virtual
+void
+parseSerial
+(std::string
+const
+& str, std::shared_ptr<UserInterface> s)
+override
+395
+396
+//! Human-readable description of this Module's supported custom commands
+397
+virtual
+void
+supportedCommands
+(std::ostream & os)
+override
+398
+399
+//! Optionally call uninit() python module function, if implemented
+400
+void
+postUninit
+()
+override
+401
+402
+private
+403
+std::string itsPyPath;
+404
+};
+405
+406
+namespace
+dnn
+407
+408
+class
+PreProcessor;
+409
+410
+//! Pre-Processor interface exposed to the python side
+411
+/*! This wrapper is passed down to the process() function of a python post-processor, it provides a python-friendly
+412
+interface to b2i(), blobsizes(), etc \ingroup python */
+413
+class
+PreProcessorForPython
+414
+415
+public
+416
+//! Construct from an existing PreProcessor
+417
+/*! Caller must ensure that pp outlives us. */
+418
+PreProcessorForPython(PreProcessor * pp);
+419
+420
+//! Access the last processed image size
+421
+/*! Returned as a tuple (width, height). */
+422
+boost::python::tuple imagesize()
+const
+423
+424
+//! Access the last computed blobs (or empty if process() has not yet been called)
+425
+boost::python::list blobs()
+const
+426
+427
+//! Access the width and height of a given blob, accounting for NCHW or NHWC
+428
+/*! Returned as a tuple (width, height). */
+429
+boost::python::tuple blobsize(
+size_t
+num)
+const
+430
+431
+//! Convert coordinates from blob back to original image
+432
+/*! Given coords x,y should be in [0..w-1]x[0..h-1] where w,h are the blob's width and height. This is useful to
+433
+convert detected boxes back into original input coordinates. Returned as a tuple (x, y). */
+434
+boost::python::tuple b2i(
+float
+x,
+float
+y,
+size_t
+blobnum);
+435
+436
+//! Get unscaled crop rectangle in image coordinates
+437
+/*! This is useful to display an image overlay on top of the input image.
+438
+Returned as a tuple (x, y, w, h). */
+439
+boost::python::tuple getUnscaledCropRect(
+size_t
+blobnum);
+440
+441
+//! Convert coordinates from image to blob
+442
+/*! Given coords x,y should be in [0..w-1]x[0..h-1] where w,h are the image's width and height. This is useful
+443
+to convert mouse coordinates (after they have been converted from screen to image coords) to locations
+444
+within an input blob. */
+445
+boost::python::tuple i2b(
+float
+x,
+float
+y,
+size_t
+blobnum);
+446
+447
+private
+448
+PreProcessor * itsPP;
+449
+};
+450
+451
+class
+PostProcessorDetectYOLO;
+452
+453
+//! YOLO post-processor exposed to python
+454
+/*! A bit hacky since PostProcessorDetectYOLO is a Component that holds parameters. This class will add a
+455
+PostProcessorDetectYOLO subcomponent to the current module, and then will forward yolo post-processing requests
+456
+to it. */
+457
+class
+PostProcessorDetectYOLOforPython
+458
+459
+public
+460
+//! Constructor constructs itsYOLO and adds it to current module
+461
+PostProcessorDetectYOLOforPython();
+462
+463
+//! Destructor removes itsYOLO from current module
+464
+~PostProcessorDetectYOLOforPython();
+465
+466
+//! Freeze/unfreeze parameters that users should not change while running
+467
+void
+freeze(
+bool
+doit);
+468
+469
+//! Generic raw YOLO processing
+470
+/*! The returned tuple has 3 elements: list of int for classIds, list of float for confidences, and list of
+471
+4-element tuples of floats for boxes (x, y, w, h). */
+472
+boost::python::tuple yolo(boost::python::list outs,
+int
+nclass,
+float
+boxThreshold,
+473
+float
+confThreshold,
+int
+bw,
+int
+bh,
+int
+fudge,
+int
+maxbox,
+bool
+sigmo);
+474
+475
+private
+476
+std::shared_ptr<PostProcessorDetectYOLO> itsYOLO;
+477
+};
+478
+479
+// namespace dnn
+480
+// namespace jevois
+int h
+Definition
+GUIhelper.C:2580
+GUIhelper.H
+Module.H
+PythonWrapper.H
+VideoMapping.H
+jevois::GUIhelperPython
+Wrapper around GUIhelper to be used by Python.
+Definition
+PythonModule.H:225
+jevois::GUIhelperPython::itext2
+void itext2(char const *txt)
+Draw some overlay text on top of an image, default color and line.
+Definition
+PythonModule.C:433
+jevois::GUIhelperPython::iinfo
+void iinfo(jevois::InputFramePython const &inframe, std::string const &fpscpu, unsigned short winw=0, unsigned short winh=0)
+Display processing and video info at bottom of screen.
+Definition
+PythonModule.C:439
+jevois::GUIhelperPython::getMousePos
+ImVec2 getMousePos()
+ImGui helper: get mouse position.
+Definition
+PythonModule.C:482
+jevois::GUIhelperPython::reportError
+void reportError(std::string const &err)
+Report an error in an overlay window.
+Definition
+PythonModule.C:464
+jevois::GUIhelperPython::releaseImage
+void releaseImage(char const *name)
+Release an image.
+Definition
+PythonModule.C:446
+jevois::GUIhelperPython::d2is1
+ImVec2 d2is1(float x, float y, char const *name=nullptr)
+Convert a 2D size from on-screen to within a rendered image.
+Definition
+PythonModule.C:367
+jevois::GUIhelperPython::reportAndRethrowException
+void reportAndRethrowException(std::string const &prefix="")
+Report current exception in a modal dialog, then re-throw it.
+Definition
+PythonModule.C:476
+jevois::GUIhelperPython::d2is
+ImVec2 d2is(ImVec2 p, char const *name=nullptr)
+Convert a 2D size from on-screen to within a rendered image.
+Definition
+PythonModule.C:361
+jevois::GUIhelperPython::d2i
+ImVec2 d2i(ImVec2 p, char const *name=nullptr)
+Convert coordinates of a point from on-screen to within a rendered image.
+Definition
+PythonModule.C:349
+jevois::GUIhelperPython::reportAndIgnoreException
+void reportAndIgnoreException(std::string const &prefix="")
+Report current exception in a modal dialog, then ignore it.
+Definition
+PythonModule.C:470
+jevois::GUIhelperPython::drawCircle
+void drawCircle(float x, float y, float r, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw circle over an image.
+Definition
+PythonModule.C:403
+jevois::GUIhelperPython::d2i1
+ImVec2 d2i1(float x, float y, char const *name=nullptr)
+Convert coordinates of a point from on-screen to within a rendered image.
+Definition
+PythonModule.C:355
+jevois::GUIhelperPython::drawInputFrame2
+boost::python::tuple drawInputFrame2(char const *name, InputFramePython const &frame, bool noalias=false, bool casync=false)
+Draw the second (scaled) input video frame from the camera using zero-copy.
+Definition
+PythonModule.C:316
+jevois::GUIhelperPython::drawPoly2
+void drawPoly2(cv::Mat const &pts, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw polygon over an image.
+Definition
+PythonModule.C:397
+jevois::GUIhelperPython::drawPoly1
+void drawPoly1(std::vector< cv::Point2f > const &pts, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw polygon over an image.
+Definition
+PythonModule.C:391
+jevois::GUIhelperPython::i2d1
+ImVec2 i2d1(float x, float y, char const *name=nullptr)
+Convert coordinates of a point from within a rendered image to on-screen.
+Definition
+PythonModule.C:331
+jevois::GUIhelperPython::drawPoly
+void drawPoly(std::vector< cv::Point > const &pts, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw polygon over an image.
+Definition
+PythonModule.C:385
+jevois::GUIhelperPython::endFrame
+void endFrame()
+Finish current frame and render it.
+Definition
+PythonModule.C:458
+jevois::GUIhelperPython::isMouseDown
+bool isMouseDown(int button_num)
+ImGui helper: check if mouse button pressed.
+Definition
+PythonModule.C:498
+jevois::GUIhelperPython::iline
+ImVec2 iline(int line=-1, char const *name=nullptr)
+Get coordinates of the start of a given line of text to be drawn as overlay on top of an image.
+Definition
+PythonModule.C:421
+jevois::GUIhelperPython::drawText
+void drawText(float x, float y, char const *txt, ImU32 col=IM_COL32(128, 255, 128, 255))
+Draw text over an image.
+Definition
+PythonModule.C:415
+jevois::GUIhelperPython::drawImage
+boost::python::tuple drawImage(char const *name, RawImage const &img, bool noalias=false, bool isoverlay=false)
+Draw a RawImage, copying pixel data to an OpenGL texture.
+Definition
+PythonModule.C:267
+jevois::GUIhelperPython::drawImage3
+boost::python::tuple drawImage3(char const *name, cv::Mat const &img, bool rgb, int x, int y, int w, int h, bool noalias=false, bool isoverlay=false)
+Draw an OpenCV image, copying pixel data to an OpenGL texture.
+Definition
+PythonModule.C:296
+jevois::GUIhelperPython::i2d
+ImVec2 i2d(ImVec2 p, char const *name=nullptr)
+Convert coordinates of a point from within a rendered image to on-screen.
+Definition
+PythonModule.C:325
+jevois::GUIhelperPython::releaseImage2
+void releaseImage2(char const *name)
+Release an image, second video stream.
+Definition
+PythonModule.C:452
+jevois::GUIhelperPython::isMouseReleased
+bool isMouseReleased(int button_num)
+ImGui helper: check if mouse button released.
+Definition
+PythonModule.C:502
+jevois::GUIhelperPython::drawImage1
+boost::python::tuple drawImage1(char const *name, cv::Mat const &img, bool rgb, bool noalias=false, bool isoverlay=false)
+Draw an OpenCV image, copying pixel data to an OpenGL texture.
+Definition
+PythonModule.C:276
+jevois::GUIhelperPython::i2ds1
+ImVec2 i2ds1(float x, float y, char const *name=nullptr)
+Convert a 2D size from within a rendered image to on-screen.
+Definition
+PythonModule.C:343
+jevois::GUIhelperPython::frameStarted
+bool frameStarted() const
+Helper to indicate that startFrame() was called, and thus endFrame() should be called.
+Definition
+PythonModule.C:261
+jevois::GUIhelperPython::i2ds
+ImVec2 i2ds(ImVec2 p, char const *name=nullptr)
+Convert a 2D size from within a rendered image to on-screen.
+Definition
+PythonModule.C:337
+jevois::GUIhelperPython::itext
+void itext(char const *txt, ImU32 const &col=IM_COL32_BLACK_TRANS, int line=-1)
+Draw some overlay text on top of an image.
+Definition
+PythonModule.C:427
+jevois::GUIhelperPython::isMouseDragging
+bool isMouseDragging(int button_num)
+ImGui helper: check if mouse button dragged.
+Definition
+PythonModule.C:494
+jevois::GUIhelperPython::isMouseClicked
+bool isMouseClicked(int button_num)
+ImGui helper: check if mouse button clicked.
+Definition
+PythonModule.C:486
+jevois::GUIhelperPython::drawRect
+void drawRect(float x1, float y1, float x2, float y2, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw rectangular box over an image.
+Definition
+PythonModule.C:379
+jevois::GUIhelperPython::startFrame
+boost::python::tuple startFrame()
+Start a new rendering frame.
+Definition
+PythonModule.C:253
+jevois::GUIhelperPython::drawEllipse
+void drawEllipse(float x, float y, float rx, float ry, float rot=0.0F, ImU32 col=IM_COL32(128, 255, 128, 255), bool filled=true)
+Draw ellipse over an image.
+Definition
+PythonModule.C:409
+jevois::GUIhelperPython::drawLine
+void drawLine(float x1, float y1, float x2, float y2, ImU32 col=IM_COL32(128, 255, 128, 255))
+Draw line over an image.
+Definition
+PythonModule.C:373
+jevois::GUIhelperPython::drawImage2
+boost::python::tuple drawImage2(char const *name, RawImage const &img, int x, int y, int w, int h, bool noalias=false, bool isoverlay=false)
+Draw an OpenCV image, copying pixel data to an OpenGL texture.
+Definition
+PythonModule.C:285
+jevois::GUIhelperPython::drawInputFrame
+boost::python::tuple drawInputFrame(char const *name, InputFramePython const &frame, bool noalias=false, bool casync=false)
+Draw the input video frame from the camera using zero-copy.
+Definition
+PythonModule.C:307
+jevois::GUIhelperPython::isMouseDoubleClicked
+bool isMouseDoubleClicked(int button_num)
+ImGui helper: check if mouse button double-clicked.
+Definition
+PythonModule.C:490
+jevois::GUIhelper
+Helper class to assist modules in creating graphical and GUI elements.
+Definition
+GUIhelper.H:133
+jevois::InputFramePython
+Wrapper around InputFrame to be used by Python.
+Definition
+PythonModule.H:47
+jevois::InputFramePython::getp
+RawImage const & getp() const
+Get the next captured camera image that is intended for processing.
+Definition
+PythonModule.C:64
+jevois::InputFramePython::getCvGRAYp
+cv::Mat getCvGRAYp() const
+Shorthand to get the input image for processing as a GRAY cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:119
+jevois::InputFramePython::getCvRGBA
+cv::Mat getCvRGBA() const
+Shorthand to get the input image as a RGBA cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:114
+jevois::InputFramePython::get2
+RawImage const & get2() const
+Get the next captured camera image, ISP-scaled second frame.
+Definition
+PythonModule.C:54
+jevois::InputFramePython::get1
+RawImage const & get1(bool casync) const
+Get the next captured camera image, thin wrapper for default arg value.
+Definition
+PythonModule.C:34
+jevois::InputFramePython::getCvRGBA1
+cv::Mat getCvRGBA1(bool casync) const
+Shorthand to get the input image as a RGBA cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:109
+jevois::InputFramePython::getCvRGBp
+cv::Mat getCvRGBp() const
+Shorthand to get the input image for processing as a RGB cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:129
+jevois::InputFramePython::InputFramePython
+InputFramePython()=default
+Default constructor to keep boost::python happy, object is not operational.
+jevois::InputFramePython::getCvRGBAp
+cv::Mat getCvRGBAp() const
+Shorthand to get the input image for processing as a RGBA cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:134
+jevois::InputFramePython::getCvBGR
+cv::Mat getCvBGR() const
+Shorthand to get the input image as a BGR cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:94
+jevois::InputFramePython::get
+RawImage const & get() const
+Get the next captured camera image, thin wrapper for default arg value.
+Definition
+PythonModule.C:39
+jevois::InputFramePython::getCvBGR1
+cv::Mat getCvBGR1(bool casync) const
+Shorthand to get the input image as a BGR cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:89
+jevois::InputFramePython::getCvBGRp
+cv::Mat getCvBGRp() const
+Shorthand to get the input image for processing as a BGR cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:124
+jevois::InputFramePython::getCvRGB
+cv::Mat getCvRGB() const
+Shorthand to get the input image as a RGB cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:104
+jevois::InputFramePython::get21
+RawImage const & get21(bool casync) const
+Get the next captured camera image, ISP-scaled second frame.
+Definition
+PythonModule.C:49
+jevois::InputFramePython::done
+void done() const
+Indicate that user processing is done with the image previously obtained via get()
+Definition
+PythonModule.C:69
+jevois::InputFramePython::getCvGRAY1
+cv::Mat getCvGRAY1(bool casync) const
+Shorthand to get the input image as a GRAY cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:79
+jevois::InputFramePython::getp1
+RawImage const & getp1(bool casync) const
+Get the next captured camera image that is intended for processing.
+Definition
+PythonModule.C:59
+jevois::InputFramePython::getCvRGB1
+cv::Mat getCvRGB1(bool casync) const
+Shorthand to get the input image as a RGB cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:99
+jevois::InputFramePython::done2
+void done2() const
+Indicate that user processing is done with the ISP-scaled image previously obtained via get2()
+Definition
+PythonModule.C:74
+jevois::InputFramePython::hasScaledImage
+bool hasScaledImage() const
+Check whether a second input image scaled by the JeVoisPro Platform ISP is available.
+Definition
+PythonModule.C:44
+jevois::InputFramePython::getCvGRAY
+cv::Mat getCvGRAY() const
+Shorthand to get the input image as a GRAY cv::Mat and release the raw buffer.
+Definition
+PythonModule.C:84
+jevois::InputFrame
+Exception-safe wrapper around a raw camera input frame.
+Definition
+InputFrame.H:51
+jevois::Module
+Virtual base class for a vision processing module.
+Definition
+Module.H:105
+jevois::OutputFramePython
+Wrapper around OutputFrame to be used by Python.
+Definition
+PythonModule.H:130
+jevois::OutputFramePython::sendScaledCvRGBA1
+void sendScaledCvRGBA1(cv::Mat const &img, int quality) const
+Shorthand to send a RGBA cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:235
+jevois::OutputFramePython::sendScaledCvBGR1
+void sendScaledCvBGR1(cv::Mat const &img, int quality) const
+Shorthand to send a BGR cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:215
+jevois::OutputFramePython::sendScaledCvGRAY1
+void sendScaledCvGRAY1(cv::Mat const &img, int quality) const
+Shorthand to send a GRAY cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:205
+jevois::OutputFramePython::get
+RawImage const & get() const
+Get the next captured camera image.
+Definition
+PythonModule.C:145
+jevois::OutputFramePython::sendCvRGB1
+void sendCvRGB1(cv::Mat const &img, int quality) const
+Shorthand to send a RGB cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:185
+jevois::OutputFramePython::sendScaledCvRGB1
+void sendScaledCvRGB1(cv::Mat const &img, int quality) const
+Shorthand to send a RGB cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:225
+jevois::OutputFramePython::send
+void send() const
+Indicate that user processing is done with the image previously obtained via get()
+Definition
+PythonModule.C:150
+jevois::OutputFramePython::sendScaledCvBGR
+void sendScaledCvBGR(cv::Mat const &img) const
+Shorthand to send a BGR cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:220
+jevois::OutputFramePython::sendCvGRAY1
+void sendCvGRAY1(cv::Mat const &img, int quality) const
+Shorthand to send a GRAY cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:165
+jevois::OutputFramePython::sendCvBGR1
+void sendCvBGR1(cv::Mat const &img, int quality) const
+Shorthand to send a BGR cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:175
+jevois::OutputFramePython::OutputFramePython
+OutputFramePython()=default
+Default constructor to keep boost::python happy, object is not operational.
+jevois::OutputFramePython::sendCvBGR
+void sendCvBGR(cv::Mat const &img) const
+Shorthand to send a BGR cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:180
+jevois::OutputFramePython::sendScaledCvRGB
+void sendScaledCvRGB(cv::Mat const &img) const
+Shorthand to send a RGB cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:230
+jevois::OutputFramePython::sendScaledCvRGBA
+void sendScaledCvRGBA(cv::Mat const &img) const
+Shorthand to send a RGBA cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:240
+jevois::OutputFramePython::sendCv1
+void sendCv1(cv::Mat const &img, int quality) const
+Shorthand to send a cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:155
+jevois::OutputFramePython::sendCvRGB
+void sendCvRGB(cv::Mat const &img) const
+Shorthand to send a RGB cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:190
+jevois::OutputFramePython::sendScaledCvGRAY
+void sendScaledCvGRAY(cv::Mat const &img) const
+Shorthand to send a GRAY cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:210
+jevois::OutputFramePython::sendCvRGBA
+void sendCvRGBA(cv::Mat const &img) const
+Shorthand to send a RGBA cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:200
+jevois::OutputFramePython::sendCv
+void sendCv(cv::Mat const &img) const
+Shorthand to send a cv::Mat after scaling/converting it to the current output format.
+Definition
+PythonModule.C:160
+jevois::OutputFramePython::sendCvRGBA1
+void sendCvRGBA1(cv::Mat const &img, int quality) const
+Shorthand to send a RGBA cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:195
+jevois::OutputFramePython::sendCvGRAY
+void sendCvGRAY(cv::Mat const &img) const
+Shorthand to send a GRAY cv::Mat after converting it to the current output format.
+Definition
+PythonModule.C:170
+jevois::OutputFrame
+Exception-safe wrapper around a raw image to be sent over USB.
+Definition
+OutputFrame.H:53
+jevois::PythonModule
+Wrapper module to allow users to develop new modules written in Python.
+Definition
+PythonModule.H:367
+jevois::PythonModule::process
+virtual void process(InputFrame &&inframe, OutputFrame &&outframe) override
+Processing function, version that receives a frame from camera and sends a frame out over USB.
+Definition
+PythonModule.C:540
+jevois::PythonModule::supportedCommands
+virtual void supportedCommands(std::ostream &os) override
+Human-readable description of this Module's supported custom commands.
+Definition
+PythonModule.C:579
+jevois::PythonModule::postUninit
+void postUninit() override
+Optionally call uninit() python module function, if implemented.
+Definition
+PythonModule.C:527
+jevois::PythonModule::parseSerial
+virtual void parseSerial(std::string const &str, std::shared_ptr< UserInterface > s) override
+Receive a string from a serial port which contains a user command.
+Definition
+PythonModule.C:567
+jevois::PythonModule::preInit
+void preInit() override
+Load python code and optionally call init() python module function, if implemented.
+Definition
+PythonModule.C:517
+jevois::PythonModule::~PythonModule
+virtual ~PythonModule()
+Virtual destructor for safe inheritance.
+Definition
+PythonModule.C:534
+jevois::PythonWrapper
+Helper class to run python code from C++.
+Definition
+PythonWrapper.H:42
+jevois::RawImage
+A raw image as coming from a V4L2 Camera and/or being sent out to a USB Gadget.
+Definition
+RawImage.H:111
+jevois
+Main namespace for all JeVois classes and functions.
+Definition
+Concepts.dox:2
+jevois::VideoMapping
+Simple struct to hold video mapping definitions for the processing Engine.
+Definition
+VideoMapping.H:62
+include
+jevois
+Core
+PythonModule.H
+Please help us improve this page: Edit it on
+GitHub
+or
+email us your edits and suggestions.
+Generated by
+1.9.8
+
+
+================================================================================
+URL: http://jevois.org/doc/ProgrammerPython.html
+TITRE: JeVois: Programming machine vision modules with Python
+================================================================================
+
+Starting with
+JeVois v1.1
+, you can program machine vision modules for JeVois in Python 3.x.
+Overview
+The basic framework is as follows:
+Many of the basic facilities provided by the core JeVois software are wrapped so that they can be accessed from Python. This includes, for example, video frame capture, image conversion, video frame output over USB, log messages, sending messages to serial port, etc.
+OpenCV is also wrapped to Python and can be used in JeVois modules written in Python. This allows one to use the machine vision and image processing functions provided by OpenCV. In this framework, images are represented as Python numpy arrays. Functions are exposed by the JeVois core to allow converting camera video frames and output video frames to/from Python numpy arrays.
+JeVois modules written in Python should consist of a single Python class that exposes a specific interface, including a process() function that will be called by the JeVois engine each time a new video frame is to be processed by the module and an output image should be sent over USB to a host computer, and a processNoUSB() function that will be called to process camera frame with no USB video output (both functions have different names because Python does not support member function overloading). Note how this was fixed in
+JeVois v1.6.2
+thanks to user discussions on
+this thread
+So, the Python integration works in a two-way manner:
+JeVois core provides a
+libjevois
+Python library that can be used by modules written in Python.
+Modules written in python expose a class with specific member functions, which will be instantiated and called by the JeVois core when the modules is loaded.
+Modules written in Python are invoked by the JeVois core just like C++ modules, using a process() function as explained in
+Concepts used throughout this documentation
+JeVois modules written in Python are otherwise treated just like modules written in C++: They get loaded when a particular video resolution is selected by the host computer, which corresponds to an entry in
+videomappings.cfg
+that matches the modules of interest. They also have a directory under
+JEVOIS:/modules
+and they may have the same auxiliary files as C++ modules do.
+Examples
+Modules in jevoisbase are available to help you understand how this works:
+PythonTest
+uses functions and classes exported by JeVois.
+PythonOpenCV
+also uses OpenCV.
+PythonSandbox
+also uses OpenCV.
+JeVois core expectations from modules written in Python
+Just like the
+Module
+C++ abstract base class defines an interface for how C++ modules will be used by the JeVois
+Engine
+, Python modules should be organized as follow:
+A single .py file in a directory under
+JEVOIS:/modules/vendor/
+declares a Python class, with the filename stem (without extension), directory name, and class name all an exact match.
+The module may declare and implememt (all are optional, but most modules should at least implement one of the process() functions to be useful):
+Constructor with no arguments:
+__init__(self)
+Process function with USB output:
+process(self, inframe, outframe)
+Process function with no USB output:
+processNoUSB(self, inframe)
+JeVois-Pro
+Process function with GUI output:
+processGUI(self, inframe, guihelper)
+Function to parse a serial command forwarded to the module by the JeVois
+Engine
+, return a string:
+parseSerial(self, str)
+Function to return a string that describes the custom commands the module supports, for the JeVois help message:
+supportedCommands(self)
+Function to cleanup just before the module will be unloaded:
+uninit()
+(in
+JeVois v1.7.1
+and later)
+Note that sendSerial() which is provided by the C++
+Module
+base class to allow derived modules to send messages over the serial port should not be defined and will not be invoked (since it is implemented by the JeVois core library rather than the module); instead, a function
+jevois.sendSerial()
+is exposed to Python modules by the JeVois core library which achieves the same result. Likewise for the functions that access raw camera or
+IMU
+registers:
+jevois.writeCamRegister()
+jevois.readCamRegister()
+jevois.writeIMUregister()
+jevois.readIMUregister()
+jevois.frameNum()
+Python bindings provided by JeVois core
+The following functions and classes of the JeVois core software are wrapped for use in Python. To use the Python version of a given class or function, just inspect the C++ documentation and assume that the same class name, function name, and number and types of arguments will be used (except for a few exceptions noted below).
+Refer to the source code in
+BOOST_PYTHON_MODULE()
+in
+PythonSupport.C
+for the latest up-to-date list of Python bindings.
+The bindings can be imported into Python through:
+import
+pyjevois
+if
+pyjevois.pro:
+import
+libjevoispro
+as
+jevois
+else
+import
+libjevois
+as
+jevois
+Every JeVois module written in Python should start with that import.
+Since all Python bindings are under the
+jevois
+module (actually, libjevois which we import as jevois), you should call these by prefixing the
+jevois
+module name.
+For example, consider the C++ function
+fccstr()
+defined in the jevois C++ namespace with signature:
+// Convert a V4L2 four-cc code (V4L2_PIX_FMT_...) to a 4-char string
+std::string
+fccstr
+unsigned
+int
+fcc);
+jevois::fccstr
+std::string fccstr(unsigned int fcc)
+Convert a V4L2 four-cc code (V4L2_PIX_FMT_...) to a 4-char string.
+Definition
+Utils.C:45
+Invoking this function from Python would take the form:
+s =
+jevois.fccstr
+(code)
+will invoke the C++ function
+fccstr()
+of JeVois, passing it the contents of variable
+code
+(which should be a positive integer number as expected by the C++ function, otherwise the binding engine will throw an exception for incorrect input argument type). The C++ string returned by the C++ function will then be copied to Python string
+and will be available for further use in Python, as any Python strings.
+List of bindings
+Click on any of the classes or functions below to see its documentation. Although the doc is for the C++ version, the functions and classes listed here have an exact binding to Python, except that you can ignore any C++ qualifiers (
+const
+and similar) and reference/pointer specifications (
+or
+before an argument name).
+Note
+Refer to the source code in
+BOOST_PYTHON_MODULE()
+in
+PythonSupport.C
+for the latest up-to-date list of Python bindings.
+General utility functions declared in
+Utils.H
+fccstr()
+cvtypestr()
+strfcc()
+v4l2BytesPerPix()
+v4l2ImageSize()
+blackColor()
+whiteColor()
+flushcache()
+system()
+Coordinate helpers declared in
+Coordinates.H
+imgToStd()
+stdToImg()
+imgToStdX()
+imgToStdY()
+imgToStdSize()
+stdToImgSize()
+Support for raw image buffers from camera and to USB from
+RawImage.H
+class
+RawImage
+member functions: invalidate(), valid(), clear(), require(), bytesperpix(), bytesize(), coordsOk()
+member variables: width, height, fmt, fps
+Raw format YUYV colors by name as in
+RawImage.H
+These are mapped to a Python enum
+jevois.YUYV
+with values Black = 0x8000, DarkGrey = 0x8050, MedGrey = 0x8080, LightGrey = 0x80a0, White = 0x80ff, DarkGreen = 0x0000, MedGreen = 0x0040, LightGreen = 0x00ff, DarkTeal = 0x7070, MedTeal = 0x7090, LightTeal = 0x70b0, DarkPurple = 0xa030, MedPurple = 0xa050, LightPurple = 0xa080, DarkPink = 0xff00, MedPink = 0xff80, LightPink = 0xffff.
+Video4Linux2 (V4L2)
+RawImage
+pixel formats supported by the camera sensor and by the USB output:
+These are mapped to constants
+jevois.V4L2_PIX_FMT_SRGGB8, jevois.V4L2_PIX_FMT_YUYV, jevois.V4L2_PIX_FMT_GREY, jevois.V4L2_PIX_FMT_RGB565, jevois.V4L2_PIX_FMT_MJPEG, and jevois.V4L2_PIX_FMT_BGR24
+Input frame wrappers around the
+InputFrame
+class from
+Module.H
+class
+InputFrame
+member functions: get(), done(), getCvGRAY(), getCvBGR(), getCvRGB(), getCvRGBA()
+Output frame wrappers around the
+OutputFrame
+class from
+Module.H
+class
+OutputFrame
+member functions: get(), send(), sendCv(), sendCvGRAY(), sendCvBGR(), sendCvRGB(), sendCvRGBA(), sendScaledCvGRAY(), sendScaledCvBGR(), sendScaledCvRGB(), sendScaledCvRGBA()
+Operations on raw images as declared in
+RawImageOps.H
+cvImage()
+convertToCvGray()
+convertToCvBGR()
+convertToCvRGB()
+convertToCvRGBA()
+byteSwap()
+paste()
+pasteGreyToYUYV()
+roipaste()
+drawDisk()
+drawCircle()
+drawLine()
+drawRect()
+writeText()
+with font selected through a Python enum
+jevois.Font
+with values
+Font5x7, Font6x10, Font7x13, Font8x13bold, Font9x15bold, Font10x20, Font11x22, Font12x22, Font14x26, Font15x28, Font16x29, Font20x38
+convertCvGRAYtoRawImage()
+convertCvBGRtoRawImage()
+convertCvRGBtoRawImage()
+convertCvRGBAtoRawImage()
+unpackCvRGBAtoGrayRawImage()
+hFlipYUYV()
+Timer
+class declared in
+Timer.H
+class
+Timer
+(note that constructor takes arguments; see below for log level definitions)
+member functions: start(), stop()
+Profiler
+class declared in
+Profiler.H
+class
+Profiler
+(note that constructor takes arguments; see below for log level definitions)
+member functions: start(), checkpoint(), stop()
+System utilities declared in
+SysInfo.H
+getSysInfoCPU()
+getSysInfoMem()
+getSysInfoVersion()
+Logging functions, simplified versions of the macros declared in
+Log.H
+, taking a single string argument instead of the streaming interface used on the C++ side (hence, Python programmers should use the Python string format() function to place various variable values in that string):
+LDEBUG()
+LINFO()
+LERROR()
+LFATAL()
+Log
+levels defined as constants:
+jevois.LOG_DEBUG, jevois.LOG_INFO, jevois.LOG_ERR, jevois.LOG_CRIT
+On
+JeVois-Pro
+, functions exposed by
+GUIhelperPython
+, which is a proxy to
+GUIhelper
+Code documentation and accessory files
+Follow the same rules as in
+Programmer SDK and writing new modules
+, under "Module documentation and metadata"
+See the sample Python modules in jevoisbase for examples of how this translates to Python doxygen directives.
+
